@@ -107,8 +107,11 @@ sensors. Architecture and the design decisions behind it:
 audit trail, and an operator CLI — all verified live against real attacks on a
 test server ([privesc](docs/demo/external-escalation.md),
 [reverse shell](docs/demo/egress-detection.md),
-[persistence](docs/demo/file-persistence.md)). Blast-radius containment
-(auto-jail) is next ([roadmap](docs/roadmap.md)). Not yet production-ready.
+[persistence](docs/demo/file-persistence.md)). Blast-radius containment has
+begun: **auto-jail** learns a service's syscalls and generates a least-privilege
+seccomp profile ([demo](docs/demo/auto-jail.md)). Automatic application and
+per-service eBPF-LSM enforcement are next ([roadmap](docs/roadmap.md)). Not yet
+production-ready.
 
 ## License
 

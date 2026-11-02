@@ -13,6 +13,7 @@ Start here. The docs are split so each folder holds one concern.
 - [privilege-escalation](concepts/privilege-escalation.md) — the first module, in depth.
 - [egress-detection](concepts/egress-detection.md) — catching reverse shells and C2 by egress novelty.
 - [file-persistence-detection](concepts/file-persistence-detection.md) — catching webshells, backdoored keys, and cron/unit persistence by write novelty.
+- [auto-jail](concepts/auto-jail.md) — learning a least-privilege seccomp profile per service to shrink the attack surface.
 - [threats-and-behavioral-defense](concepts/threats-and-behavioral-defense.md) — exploit classes (PHP/Node/Linux/kernel/SQLi/XSS) → host-observable effects → Phage's signals, with honest blind spots.
 
 ## Design

@@ -93,9 +93,23 @@ The first real value.
       attack against the same baseline then produced exactly one alert.
 
 ## M3 — Blast-radius containment (auto-jail)
-- [ ] Learn a service's normal syscall/file/network behavior.
-- [ ] Generate and apply a least-privilege profile (seccomp/eBPF LSM).
-- [ ] "Learn → enforce" per service, same ladder philosophy.
+- [x] Learn a service's syscall behaviour: a `tp_btf/sys_enter` eBPF profiler
+      (`bpf/programs/jail.bpf.c`) gated on one cgroup, counting syscalls into a
+      map. Its own object, loaded only by `phage-jail`, never by the daemon.
+- [x] Generate a least-privilege seccomp profile (OCI JSON + systemd drop-in)
+      from the learned set, default `ERRNO(EPERM)`, with a minimal always-allow
+      baseline. Arch syscall table generated from the kernel header. Pure-Go
+      generation, unit-tested (`internal/jail/{syscalls,profile,seccomp}`).
+- [x] Live-verified (kernel 7.0): profiled a web service from its first
+      instruction (52 syscalls), generated its profile, and proved enforcement —
+      jailed, the service's interpreter is denied `unshare`/`ptrace` (EPERM)
+      while still running. See [demo/auto-jail](demo/auto-jail.md) and
+      [ADR 0003](architecture/decisions/0003-auto-jail-seccomp.md).
+- [ ] Apply the profile automatically (write the drop-in, restart jailed) with
+      the same learn→enforce ladder and a staging-validation gate.
+- [ ] Per-service **eBPF-LSM** enforcement reusing the detection baseline (block
+      novel exec/egress/file per cgroup) on kernels with `lsm=bpf`. seccomp
+      cannot block a service's own post-startup `execve`; LSM can.
 
 ## M4 — Self-healing
 - [ ] Automated response playbooks (isolate network, restart clean, roll back).

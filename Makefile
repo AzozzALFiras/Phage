@@ -10,8 +10,9 @@ LDFLAGS   := -X main.version=$(VERSION)
 # Map `uname -m` to the arch macro clang's bpf headers expect (x86_64 -> x86).
 UNAME_M   := $(shell uname -m)
 BPF_ARCH  := $(if $(filter x86_64,$(UNAME_M)),x86,$(if $(filter aarch64,$(UNAME_M)),arm64,$(UNAME_M)))
-BPF_OBJ   := bpf/build/sensors.bpf.o
-BPF_SRC   := bpf/programs/sensors.bpf.c
+# Each *.bpf.c under bpf/programs compiles to its own object in bpf/build.
+BPF_SRCS  := $(wildcard bpf/programs/*.bpf.c)
+BPF_OBJS  := $(patsubst bpf/programs/%.bpf.c,bpf/build/%.bpf.o,$(BPF_SRCS))
 
 .PHONY: all build daemon cli test lint tidy clean bpf gen-vmlinux help
 
@@ -39,13 +40,15 @@ tidy: ## Tidy go.mod
 gen-vmlinux: ## Generate bpf/include/vmlinux/vmlinux.h from the running kernel (Linux)
 	./scripts/gen/vmlinux.sh
 
-bpf: ## Compile eBPF programs with CO-RE (Linux)
+bpf: $(BPF_OBJS) ## Compile every eBPF program with CO-RE (Linux)
+
+bpf/build/%.bpf.o: bpf/programs/%.bpf.c
 	@mkdir -p bpf/build
 	$(CLANG) -O2 -g -Wall -target bpf -D__TARGET_ARCH_$(BPF_ARCH) \
 		-I bpf/include/vmlinux -I bpf/programs \
-		-c $(BPF_SRC) -o $(BPF_OBJ)
-	@llvm-strip -g $(BPF_OBJ) 2>/dev/null || true
-	@echo "built $(BPF_OBJ)"
+		-c $< -o $@
+	@llvm-strip -g $@ 2>/dev/null || true
+	@echo "built $@"
 
 clean: ## Remove build output
 	rm -rf $(BIN) bpf/build/*.o
