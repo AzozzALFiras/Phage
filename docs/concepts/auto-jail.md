@@ -42,13 +42,26 @@ most privilege escalation, container escape, and rootkit loading. For a service
 that never opens a socket, it denies **all** networking, so a reverse shell or
 exfil cannot leave.
 
-What it **cannot** do, stated plainly: block the service's *own* `execve` of a
-shell. systemd execs the service to start it, and seccomp cannot tell that exec
-from a later one, so `execve` must stay allowed. Stopping an exploited service
-from spawning `sh` is the job of Phage's **exec sensor** (which already detects
-it) and, on kernels that enable it, eBPF-LSM (which will block it) — not this
-seccomp profile. The two halves are complementary: the jail removes the exotic
-primitives, the sensors catch the shell.
+What seccomp **cannot** do, stated plainly: block the service's *own* `execve` of
+a shell. systemd execs the service to start it, and seccomp cannot tell that exec
+from a later one, so `execve` must stay allowed in the profile. That gap is
+closed by the eBPF-LSM exec-lock below, and by Phage's exec sensor, which detects
+the spawn regardless.
+
+## Enforcement: exec-lock (eBPF-LSM)
+On a kernel booted with the BPF LSM active (`bpf` in `/sys/kernel/security/lsm`),
+`phage-jail lock` does what seccomp cannot: it attaches an `lsm/bprm_check_security`
+program that **denies any new `execve` inside a locked service's cgroup**. Applied
+to a service after it has started, an exploited instance — a webshell, an injected
+command — simply cannot launch `sh`, `bash`, `curl`, or anything else; the kernel
+refuses the exec with `EPERM`. The service keeps running (a long-lived daemon
+never needs to spawn new programs), and nothing outside its cgroup is affected.
+
+It is default-allow and scoped to exactly the cgroups you lock, and the lock lifts
+the instant `phage-jail` exits — so it cannot lock the box out. Together with the
+seccomp profile (which removes the exotic primitives) this is real blast-radius
+containment: an exploit lands in a process that can neither spawn a shell nor use
+the dangerous syscalls, learned per service rather than hand-written.
 
 ## Getting a trustworthy profile
 - **Capture startup.** A profile missing the service's earliest syscalls will
@@ -63,9 +76,12 @@ primitives, the sensors catch the shell.
   before trusting the profile in production.
 
 ## Status and gaps
-- **Shipped:** learn + generate, live-verified (see
-  [demo/auto-jail](../demo/auto-jail.md)). amd64 only (the syscall table is
-  generated per-arch from the kernel header; arm64 is future work).
-- **Not yet:** applying the profile automatically, and per-service eBPF-LSM
-  enforcement that reuses the detection baseline to block novel exec/egress/file
-  on kernels with `lsm=bpf`. See the [roadmap](../roadmap.md).
+- **Shipped:** syscall learn + seccomp generate, and eBPF-LSM **exec-lock**
+  enforcement — all live-verified (see [demo/auto-jail](../demo/auto-jail.md)).
+  amd64 only (the syscall table is generated per-arch from the kernel header;
+  arm64 is future work). Exec-lock needs a kernel with `bpf` in the active LSM
+  list (`lsm=...,bpf`).
+- **Not yet:** an *allowlist* exec-lock (permit a service's few legitimate child
+  programs, deny the rest) rather than all-or-nothing; automatically applying the
+  seccomp profile; and extending LSM enforcement to egress/file using the
+  detection baseline. See the [roadmap](../roadmap.md).

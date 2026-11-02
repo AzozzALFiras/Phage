@@ -62,6 +62,12 @@ not implement a new sandbox.
 ## Consequences
 - Generated profiles are a **validated starting point**, not a blind drop-in; the
   docs say so plainly.
-- eBPF-LSM enforcement (block novel exec/egress/file per service, reusing the
-  detection baseline) remains open as a future increment for kernels that enable
-  it — the learn/generate half shipped here is the foundation.
+- The seccomp gap (a service's own `execve`) is closed by an **eBPF-LSM exec-lock**
+  (`lsm/bprm_check_security`), shipped alongside this. It denies any new exec
+  inside a locked service's cgroup — default-allow, scoped to the cgroups you
+  lock, lifted when the tool exits. This is the piece seccomp cannot provide, and
+  it required enabling the BPF LSM on the target (`lsm=...,bpf` at boot; safe —
+  the hook is inert until an LSM program attaches).
+- Extending LSM enforcement to egress/file and to an *allowlist* exec-lock (permit
+  a service's few legitimate children, deny the rest), reusing the detection
+  baseline, remains the next increment.

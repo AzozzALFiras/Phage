@@ -1,12 +1,17 @@
-// Command phage-jail is the operator tool for auto-jail (M3): it learns the
-// syscalls a running service makes and generates a least-privilege seccomp
-// policy from them. Enforcement is handed to systemd/seccomp, not reinvented —
-// see docs/concepts/auto-jail.md.
+// Command phage-jail is the operator tool for auto-jail (M3). Two subcommands:
 //
-//	phage-jail -unit nginx.service -bpf bpf/build/jail.bpf.o -seconds 120 -out ./profiles
+//	phage-jail profile -unit nginx.service -seconds 120 -out ./profiles
+//	    learn the syscalls a service makes and write a least-privilege seccomp
+//	    profile (OCI JSON + systemd drop-in). Enforcement is handed to
+//	    systemd/seccomp, not reinvented.
 //
-// It needs root and a Linux kernel with BTF. The generated profile is a starting
-// point to validate in staging, never a blind drop-in.
+//	phage-jail lock -unit nginx.service
+//	    put a running service under eBPF-LSM exec-lock: it can no longer execve
+//	    any new program, so an exploit cannot spawn a shell. Needs a kernel
+//	    booted with bpf in the active LSM list. The lock lasts as long as the
+//	    command runs.
+//
+// Both need root and a Linux kernel with BTF. See docs/concepts/auto-jail.md.
 package main
 
 import (
@@ -22,6 +27,7 @@ import (
 	"time"
 
 	"github.com/AzozzALFiras/Phage/internal/jail/cgroup"
+	"github.com/AzozzALFiras/Phage/internal/jail/enforce"
 	"github.com/AzozzALFiras/Phage/internal/jail/profile"
 	"github.com/AzozzALFiras/Phage/internal/jail/seccomp"
 	"github.com/AzozzALFiras/Phage/internal/jail/sensor"
@@ -33,19 +39,83 @@ func main() {
 	log.SetFlags(0)
 	log.SetPrefix("phage-jail: ")
 
-	var (
-		unit    = flag.String("unit", "", "systemd unit to profile (e.g. nginx.service)")
-		cgPath  = flag.String("path", "", "cgroup v2 path to profile instead of -unit (e.g. /system.slice/app.service)")
-		objPath = flag.String("bpf", "bpf/build/jail.bpf.o", "path to the compiled jail eBPF object")
-		seconds = flag.Int("seconds", 60, "how long to observe (0 = until Ctrl-C)")
-		outDir  = flag.String("out", ".", "directory to write the generated profile into")
-		follow  = flag.Bool("follow", false, "re-resolve the unit's cgroup across restarts (so you can restart it to capture startup syscalls)")
-	)
-	flag.Parse()
+	args := os.Args[1:]
+	verb := "profile"
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		verb, args = args[0], args[1:]
+	}
 
-	if err := run(*unit, *cgPath, *objPath, *seconds, *outDir, *follow); err != nil {
+	var err error
+	switch verb {
+	case "profile":
+		err = cmdProfile(args)
+	case "lock":
+		err = cmdLock(args)
+	default:
+		err = fmt.Errorf("unknown command %q (want: profile | lock)", verb)
+	}
+	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+// cmdProfile is `phage-jail profile`: learn a service's syscalls and write a
+// least-privilege seccomp profile.
+func cmdProfile(args []string) error {
+	fs := flag.NewFlagSet("profile", flag.ExitOnError)
+	unit := fs.String("unit", "", "systemd unit to profile (e.g. nginx.service)")
+	cgPath := fs.String("path", "", "cgroup v2 path to profile instead of -unit (e.g. /system.slice/app.service)")
+	objPath := fs.String("bpf", "bpf/build/jail.bpf.o", "path to the compiled jail eBPF object")
+	seconds := fs.Int("seconds", 60, "how long to observe (0 = until Ctrl-C)")
+	outDir := fs.String("out", ".", "directory to write the generated profile into")
+	follow := fs.Bool("follow", false, "re-resolve the unit's cgroup across restarts (so you can restart it to capture startup syscalls)")
+	_ = fs.Parse(args)
+	return run(*unit, *cgPath, *objPath, *seconds, *outDir, *follow)
+}
+
+// cmdLock is `phage-jail lock`: put a running service under eBPF-LSM exec-lock —
+// it may no longer execve any new program. Enforcement lasts as long as this
+// command runs; on exit (Ctrl-C) the lock is lifted.
+func cmdLock(args []string) error {
+	fs := flag.NewFlagSet("lock", flag.ExitOnError)
+	unit := fs.String("unit", "", "systemd unit to exec-lock (e.g. nginx.service)")
+	cgPath := fs.String("path", "", "cgroup v2 path to exec-lock instead of -unit")
+	objPath := fs.String("bpf", "bpf/build/jail_lsm.bpf.o", "path to the compiled jail LSM eBPF object")
+	_ = fs.Parse(args)
+
+	if *unit == "" && *cgPath == "" {
+		return fmt.Errorf("give -unit or -path")
+	}
+	if !enforce.BPFLSMActive() {
+		return fmt.Errorf("BPF LSM is not active: boot with lsm=...,bpf (see docs/concepts/auto-jail.md)")
+	}
+	cgid, resolved, err := resolveCgroup(*unit, *cgPath)
+	if err != nil {
+		return err
+	}
+	label := *unit
+	if label == "" {
+		label = *cgPath
+	}
+
+	lock, err := enforce.LoadExecLock(*objPath)
+	if err != nil {
+		return err
+	}
+	defer lock.Close() // detaching lifts enforcement for everything
+	if err := lock.Lock(cgid); err != nil {
+		return err
+	}
+	defer lock.Unlock(cgid)
+
+	log.Printf("exec-locked %s (cgroup %s, id %d): it can no longer spawn new programs", label, resolved, cgid)
+	log.Printf("a reverse shell or injected command in this service will be denied at exec. Ctrl-C to release.")
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	<-ctx.Done()
+	log.Printf("releasing exec-lock on %s", label)
+	return nil
 }
 
 func run(unit, cgPath, objPath string, seconds int, outDir string, follow bool) error {

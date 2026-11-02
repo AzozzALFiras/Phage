@@ -105,11 +105,20 @@ The first real value.
       jailed, the service's interpreter is denied `unshare`/`ptrace` (EPERM)
       while still running. See [demo/auto-jail](demo/auto-jail.md) and
       [ADR 0003](architecture/decisions/0003-auto-jail-seccomp.md).
-- [ ] Apply the profile automatically (write the drop-in, restart jailed) with
-      the same learn→enforce ladder and a staging-validation gate.
-- [ ] Per-service **eBPF-LSM** enforcement reusing the detection baseline (block
-      novel exec/egress/file per cgroup) on kernels with `lsm=bpf`. seccomp
-      cannot block a service's own post-startup `execve`; LSM can.
+- [x] **eBPF-LSM exec-lock** (`bpf/programs/jail_lsm.bpf.c`,
+      `lsm/bprm_check_security`): deny any new `execve` inside a locked service's
+      cgroup — the gap seccomp cannot cover (a service's own post-startup exec).
+      Default-allow, scoped to the cgroups you lock, lifted on tool exit.
+      Live-verified (kernel 7.0, booted `lsm=...,bpf`): a process in the locked
+      cgroup is denied exec (EPERM) while the service keeps serving and other
+      cgroups are untouched. `phage-jail lock`. See
+      [demo/auto-jail](demo/auto-jail.md).
+- [ ] Allowlist exec-lock: permit a service's few legitimate child programs and
+      deny the rest (vs today's all-or-nothing), learned from the exec baseline.
+- [ ] Apply the seccomp profile automatically (write the drop-in, restart jailed)
+      with the learn→enforce ladder and a staging-validation gate.
+- [ ] Extend LSM enforcement to egress/file per cgroup, reusing the detection
+      baseline.
 
 ## M4 — Self-healing
 - [ ] Automated response playbooks (isolate network, restart clean, roll back).

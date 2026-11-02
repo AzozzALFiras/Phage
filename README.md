@@ -109,9 +109,10 @@ test server ([privesc](docs/demo/external-escalation.md),
 [reverse shell](docs/demo/egress-detection.md),
 [persistence](docs/demo/file-persistence.md)). Blast-radius containment has
 begun: **auto-jail** learns a service's syscalls and generates a least-privilege
-seccomp profile ([demo](docs/demo/auto-jail.md)). Automatic application and
-per-service eBPF-LSM enforcement are next ([roadmap](docs/roadmap.md)). Not yet
-production-ready.
+seccomp profile, and an **eBPF-LSM exec-lock** stops an exploited service from
+spawning a shell at all — both live-verified ([demo](docs/demo/auto-jail.md)).
+Automatic application and baseline-driven LSM enforcement are next
+([roadmap](docs/roadmap.md)). Not yet production-ready.
 
 ## License
 

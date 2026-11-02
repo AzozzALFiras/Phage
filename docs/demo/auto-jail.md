@@ -55,6 +55,33 @@ the service), but `unshare` (userns/container-escape) and `ptrace` (inject into
 other processes) — both in the reported blocked set — are refused. Without the
 jail they succeed.
 
+## Enforcement that seccomp can't do: exec-lock (eBPF-LSM)
+The seccomp profile above cannot stop the service spawning a shell (systemd needs
+`execve` to start it). On a kernel booted with the BPF LSM active, `phage-jail
+lock` closes that gap — an `lsm/bprm_check_security` program denies any new
+`execve` inside the locked cgroup. Same web service, locked:
+
+```
+== BEFORE lock: exec inside the service cgroup ==
+  joined: 0::/system.slice/phage-webdemo.service
+  -> exec SUCCEEDED (a shell could spawn here)
+== apply eBPF-LSM exec-lock on the service ==
+  exec-locked phage-webdemo.service (cgroup id 6774): it can no longer spawn new programs
+== AFTER lock: same attempt inside the service cgroup ==
+  joined: 0::/system.slice/phage-webdemo.service
+  bash: /bin/echo: Operation not permitted
+  -> exec DENIED (rc=126) — no new program can start in this cgroup
+== is the service itself still alive? ==
+  service serves HTTP: 200  state: active
+== collateral check: exec OUTSIDE the locked cgroup still works ==
+  -> outside-cgroup exec OK
+```
+
+A process in the locked cgroup — exactly what an exploited service's shell would
+be — is refused at the kernel, while the service keeps serving and every other
+cgroup is untouched. When `phage-jail` exits, the lock lifts and exec works
+again: enforcement is tied to the tool's lifetime, so it cannot lock the box out.
+
 ## Honest notes
 - **Capturing startup matters.** An earlier run that attached *after* the service
   started omitted its startup syscalls (`socket`/`bind`/`listen`/`execve`), which
