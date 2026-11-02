@@ -41,7 +41,8 @@ near-unforgeable (1.00); the webshell is 0.57 because this host *does* legitimat
 write PHP, so only the unusual writer stands out — the model being correctly
 relative to the host, not a fixed rule.
 
-### False positives — 7 in 60 s, and what they actually were
+### False positives — and what they actually were
+The first run raised **7** alerts in the 60 s window:
 ```
 false-positive programs (comm):
   2 tail   2 sshd-session   2 sshd-auth   1 unix_chkpwd
@@ -53,13 +54,20 @@ observed* — SSH re-authentication (`sshd-session`/`sshd-auth`), PAM's
 `unix_chkpwd`, and ordinary shell text tools — flagged by the exec-novelty
 detector as "a parent→child pair never seen on this host."
 
-That is the central, honestly-stated tradeoff of novelty-based exec detection: on
-an **immature baseline it flags benign-but-unlearned programs**. The naive
-extrapolation (7 / 60 s ≈ 10,000 alerts/host/day) is what a *frozen 60-second
-baseline* would produce forever — which is exactly why Phage ships a
-`learn → alert → enforce` ladder and advises a **multi-day** learn that covers the
-host's full ambient activity (cron cycles, log rotation, logins, backups). The
-number is a function of baseline completeness, not of the attack surface.
+That is the central tradeoff of novelty-based exec detection on an **immature
+baseline**: it flags benign-but-unlearned programs.
+
+**The benchmark then drove a fix.** The RCE signal is specifically a *service*
+(no session) spawning a never-seen program; a novel exec inside an *interactive*
+login session is a human running commands and is expected. Down-weighting
+interactive exec novelty (`execInteractiveDiscount`) **cut the window to 5 with
+detection unchanged at 7/7** — a measured, thesis-aligned improvement, not a
+blanket allowlist (which would create living-off-the-land blind spots). The
+residual false positives are system-auth internals (`sshd`/PAM) that a
+*representative* baseline — one that has seen real logins — learns, which is why
+Phage ships a `learn → alert → enforce` ladder and advises a multi-day learn. The
+number is a function of baseline completeness, not of the attack surface; a naive
+"×1440" extrapolation assumes a frozen 60 s baseline and overstates it.
 
 ## Threats to validity (stated plainly)
 - **Single host, short baseline.** 60 iterations is deliberately minimal; it makes
@@ -74,9 +82,10 @@ number is a function of baseline completeness, not of the attack surface.
 
 ## What this benchmark drives
 The FP result makes the priorities concrete and measurable:
-1. **Cut exec-novelty false positives** — co-occurrence and time-decay models
-   behind the `scorer.Scorer` seam, and learning/allowlisting ambient system
-   programs (PAM, sshd re-auth) so they stop surprising a mature baseline.
+1. **Cut exec-novelty false positives** — ✅ first step done (interactive-exec
+   discount, 7→5 with detection unchanged); next, co-occurrence and time-decay
+   models behind the `scorer.Scorer` seam, so a mature baseline stops being
+   surprised by benign system-auth internals.
 2. **Baseline maturity as a first-class metric** — report FP as a function of
    learn duration, and refuse `enforce` until the baseline is demonstrably mature.
 3. **Enable-op cold start** — a host that never performs an enabling op has no

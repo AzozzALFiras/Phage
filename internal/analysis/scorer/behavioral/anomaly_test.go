@@ -142,6 +142,33 @@ func TestOverrideFeatureFloorsScore(t *testing.T) {
 	}
 }
 
+// A never-seen exec inside an interactive session (admin at a keyboard) must
+// score lower than the same exec from a service (no session) — the RCE signal.
+func TestInteractiveExecNoveltyIsDiscounted(t *testing.T) {
+	p := baseline.NewProfile()
+	for i := 0; i < 100; i++ {
+		for _, interactive := range []float64{0, 1} {
+			for k, v := range (feature.Vector{
+				feature.FeatExecPair: 10, feature.FeatExecChild: 20, feature.FeatExecInteractive: interactive,
+			}) {
+				p.Observe(k, v)
+			}
+		}
+	}
+	a := New(p)
+	mk := func(interactive float64) feature.Vector {
+		return feature.Vector{feature.FeatExecPair: 999, feature.FeatExecChild: 888, feature.FeatExecInteractive: interactive}
+	}
+	si := a.Score(mk(1)).Score // interactive admin
+	ss := a.Score(mk(0)).Score // service / no session
+	if !(si < ss) {
+		t.Fatalf("interactive novel exec (%.2f) should score below a service exec (%.2f)", si, ss)
+	}
+	if ss < 0.5 {
+		t.Fatalf("a service spawning a never-seen program should still score high, got %.2f", ss)
+	}
+}
+
 func TestEmptyBaselineIsNeutral(t *testing.T) {
 	// With nothing learned, Surprise is 0 everywhere, so no false positives.
 	a := New(baseline.NewProfile())

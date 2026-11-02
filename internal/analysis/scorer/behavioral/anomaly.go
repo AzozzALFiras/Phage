@@ -78,6 +78,13 @@ func (a *Anomaly) Score(v feature.Vector) verdict.Verdict {
 	if a.profile == nil {
 		return out
 	}
+	// The RCE signal is a *service* spawning a never-seen program. A novel exec
+	// inside an interactive login session is a human running new commands, which
+	// is expected — so its parent->child novelty is discounted. The no-session
+	// (service) case keeps full weight, so RCE detection is untouched while benign
+	// admin activity stops generating false positives (see docs/benchmark).
+	interactiveExec := v[feature.FeatExecInteractive] == 1
+
 	var score, weightSum, floor float64
 	for key, val := range v {
 		s := a.profile.Surprise(key, val)
@@ -108,6 +115,9 @@ func (a *Anomaly) Score(v feature.Vector) verdict.Verdict {
 			continue
 		}
 		contribution := w * s * conf
+		if interactiveExec && (key == feature.FeatExecPair || key == feature.FeatExecChild) {
+			contribution *= execInteractiveDiscount
+		}
 		if contribution <= 0 {
 			continue
 		}
@@ -132,6 +142,11 @@ func (a *Anomaly) Score(v feature.Vector) verdict.Verdict {
 // trusts its surprise fully. Below it, a feature's contribution is scaled down
 // linearly, so "I have barely seen this" never reads as "this is an attack".
 const minConfidentSamples = 15
+
+// execInteractiveDiscount scales down exec parent->child novelty when the exec
+// happens inside an interactive login session (expected admin activity), so it
+// does not dominate the score. Service (no-session) execs are not discounted.
+const execInteractiveDiscount = 0.3
 
 func confidence(samples uint64) float64 {
 	if samples >= minConfidentSamples {
