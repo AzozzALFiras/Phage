@@ -27,8 +27,9 @@ func New(p *baseline.Profile) *Anomaly {
 	return &Anomaly{
 		profile: p,
 		weights: map[string]float64{
-			feature.FeatRaisedToRoot:      0.7, // unprivileged -> root is the sharpest signal
-			feature.FeatInteractiveOrigin: 0.6, // ...especially with no login session behind it
+			feature.FeatRaiseNoSession:    1.0, // raised to root with no login session: the sharpest signal
+			feature.FeatRaisedToRoot:      0.7, // unprivileged -> root
+			feature.FeatInteractiveOrigin: 0.5,
 			feature.FeatParentComm:        0.4, // an unusual parent for a root transition
 			feature.FeatGainedRoot:        0.2,
 			feature.FeatHasTTY:            0.2,
@@ -77,6 +78,10 @@ func (a *Anomaly) weight(key string) float64 {
 // explain renders a human reason. It describes the deviation, never a verdict.
 func explain(key string, val, surprise float64) string {
 	switch key {
+	case feature.FeatRaiseNoSession:
+		if val == 1 {
+			return "raised to root with no login session behind it (never seen on this host)"
+		}
 	case feature.FeatRaisedToRoot:
 		if val == 1 {
 			return "an unprivileged process raised itself to root"

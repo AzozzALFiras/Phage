@@ -18,7 +18,7 @@ type Config struct {
 func Default() Config {
 	return Config{
 		Mode:        mode.Learn,
-		StatePath:   "/var/lib/phage/baseline.db",
+		StatePath:   "/var/lib/phage/baseline.json",
 		LogLevel:    "info",
 		LearnWindow: "168h",
 	}

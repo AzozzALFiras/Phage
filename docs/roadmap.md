@@ -17,11 +17,17 @@ The first real value.
 - [x] Enrichment: process lineage + session provenance (audit loginuid, tty).
       Live-verified — the same setuid escalation is told apart by provenance:
       spawned by systemd with no login session vs run inside an admin login.
-- [ ] Baseline persistence (embedded KV).
-- [ ] Learn mode end-to-end; alert mode with explained verdicts.
+- [x] Baseline persistence: atomic JSON snapshot behind a pluggable
+      `store.Repository` seam (embedded KV can drop in later).
+- [x] Learn mode end-to-end; alert mode scoring with explained verdicts and the
+      policy engine choosing the response.
 - [ ] Deterministic pipeline tests from recorded fixtures.
-- **Demo:** on our test server, a simulated web-to-root escalation surfaces as an
-  explained alert while normal `sudo` over SSH stays silent.
+- **Demo — done.** A real HTTP attack from a remote machine exploited a lab web
+  app (command injection) to run as `webapp`, then escalated to root via a
+  setuid binary. Phage flagged the escalation **CRITICAL (score 0.83)** with the
+  reason "raised to root with no login session behind it (never seen on this
+  host)", while legitimate raises inside a login session stayed silent. See
+  [docs/demo/external-escalation.md](demo/external-escalation.md).
 
 ## M2 — Enforcement (contain)
 - [ ] Reversible containment: cgroup freeze of the offending process tree.
