@@ -9,8 +9,11 @@ Architecture, pipeline seams, docs, buildable Go skeleton. (You are here.)
 The first real value.
 - [x] `creds.bpf.c` hooking `commit_creds` — compiles with CO-RE and passes the
       kernel verifier on the target (Ubuntu 26.04, kernel 7.0, x86_64).
-- [ ] Stream events to userspace: sensor loader (`cilium/ebpf`) + ring-buffer
-      reader + decode.
+- [x] Stream events to userspace: sensor loader (`cilium/ebpf`) + ring-buffer
+      reader + decode. Verified live on the test server — real credential
+      transitions captured end to end (pid, comm, uid/euid, caps).
+- [ ] Measure transition *direction*: a non-root process gaining root (euid
+      0 raised) vs root dropping privileges. Direction is a feature, not a rule.
 - [ ] Enrichment: process lineage, session/TTY provenance.
 - [ ] Baseline persistence (embedded KV).
 - [ ] Learn mode end-to-end; alert mode with explained verdicts.
