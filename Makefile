@@ -7,6 +7,11 @@ BIN       ?= bin
 VERSION   ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS   := -X main.version=$(VERSION)
 
+# Map `uname -m` to the arch macro clang's bpf headers expect (x86_64 -> x86).
+UNAME_M   := $(shell uname -m)
+BPF_ARCH  := $(if $(filter x86_64,$(UNAME_M)),x86,$(if $(filter aarch64,$(UNAME_M)),arm64,$(UNAME_M)))
+BPF_OBJ   := bpf/build/creds.bpf.o
+
 .PHONY: all build daemon cli test lint tidy clean bpf gen-vmlinux help
 
 all: build ## Build everything (Go only)
@@ -34,10 +39,12 @@ gen-vmlinux: ## Generate bpf/include/vmlinux/vmlinux.h from the running kernel (
 	./scripts/gen/vmlinux.sh
 
 bpf: ## Compile eBPF programs with CO-RE (Linux)
-	@echo "eBPF build runs on Linux only — see docs/guides/development.md"
-	$(CLANG) -O2 -g -target bpf -D__TARGET_ARCH_$(shell uname -m) \
+	@mkdir -p bpf/build
+	$(CLANG) -O2 -g -Wall -target bpf -D__TARGET_ARCH_$(BPF_ARCH) \
 		-I bpf/include/vmlinux -I bpf/programs \
-		-c bpf/programs/privilege/creds.bpf.c -o bpf/build/creds.bpf.o
+		-c bpf/programs/privilege/creds.bpf.c -o $(BPF_OBJ)
+	@llvm-strip -g $(BPF_OBJ) 2>/dev/null || true
+	@echo "built $(BPF_OBJ)"
 
 clean: ## Remove build output
 	rm -rf $(BIN) bpf/build/*.o
