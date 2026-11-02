@@ -14,6 +14,32 @@ output each time. Everything here is reproducible from one script
   (freezes it mid-run), or **PREVENT** (blocks it at the kernel). We do not claim
   more than the evidence shows.
 
+## Where Phage sits in the attack chain
+Phage does not guard the application vulnerability itself — the door an intruder
+comes through. It guards what they do once inside. The attacker starts **outside**
+the server, with no account, and breaks in through an exposed service; Phage's job
+begins at the foothold.
+
+```
+[ Attacker on the internet — no account on the server ]
+        |
+        |  ENTRY (the payload): exploits an exposed service (web app / API) —
+        |  command injection, RCE, file upload, SQLi->OS, deserialization
+        |  >>> WAF / RASP territory — Phage does NOT see the payload
+        v
+[ Code now running as the unprivileged service user (www-data) ]  <- the foothold
+        |                                          ...Phage's coverage begins here
+        |  POST-EXPLOITATION — whatever the intruder does next on the host:
+        |
+        +-- reaches out:  reverse shell / C2       -> DETECT (egress) + BLOCK (jail)  [Sc.2, 4]
+        +-- digs in:      webshell, authorized_keys-> DETECT (persistence)            [Sc.3]
+        +-- escalates:    to root, no login session-> CONTAIN (freeze)                [Sc.1]
+```
+
+The same holds for an attacker who already has a low-privilege account, or an
+insider: Phage judges the actions on the host, not how the actor arrived. The
+"no login session" signal is how it tells an intruder's root from a real admin's.
+
 ## Summary
 
 | # | Attack | Attacker's goal | Without Phage | With Phage | Mode |
