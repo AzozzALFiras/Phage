@@ -67,7 +67,7 @@ func New(cfg config.Config, objPath string, store profile.Repository) *App {
 		profile:     p,
 		extract:     feature.Privilege{},
 		scorer:      behavioral.New(p), // bound to p; sees whatever we load into it
-		engine:      engine.New(cfg.Mode),
+		engine:      engine.NewWithThresholds(cfg.Mode, engine.Thresholds(cfg.Thresholds)),
 		freezer:     contain.NewFreezer(),
 		started:     time.Now(),
 		recentLimit: 100,

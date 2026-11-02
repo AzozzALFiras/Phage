@@ -33,6 +33,12 @@ func New(m mode.Mode) *Engine {
 	return &Engine{Mode: m, Thresholds: DefaultThresholds()}
 }
 
+// NewWithThresholds returns an Engine for a mode with operator-tuned thresholds
+// (see internal/agent/config). The caller is expected to have validated them.
+func NewWithThresholds(m mode.Mode, t Thresholds) *Engine {
+	return &Engine{Mode: m, Thresholds: t}
+}
+
 // Decide maps a verdict to an action under the current mode. The default
 // containment is Freeze, not Kill: freezing is reversible, so a false positive
 // can be released instead of leaving a dead process behind.

@@ -1,8 +1,10 @@
 # Quickstart
 
-> ⚠️ Early development. These steps describe the intended operator experience;
-> the daemon does not yet wire up sensors. See [development](development.md) for
-> what actually builds today.
+> ⚠️ Early but working. The daemon loads the eBPF sensors, learns a baseline,
+> and scores/contains in alert and enforce modes (privilege-escalation and exec
+> detection are live-verified; the egress sensor is built and pending live
+> verification). The hosted installer below is still a placeholder — build from
+> source for now. See [development](development.md).
 
 ## Requirements
 - Linux, kernel ≥ 5.8 with BTF (`CONFIG_DEBUG_INFO_BTF=y`). Check:
@@ -18,10 +20,13 @@ curl -fsSL https://get.phage.sh | sh     # placeholder; not live yet
 
 ## First run — always start in learn mode
 ```sh
+sudo mkdir -p /etc/phage
 sudo cp configs/phage.example.yaml /etc/phage/phage.yaml
 # mode: learn   (do not change yet)
-sudo phaged
+sudo phaged -config /etc/phage/phage.yaml
 ```
+Any flag overrides the file for that run — e.g. `sudo phaged -config
+/etc/phage/phage.yaml -mode alert` to try alert mode without editing the file.
 Let it learn for at least a week (`learn_window`). It is building the baseline of
 how your server normally behaves. It will not alert or act in this phase — that
 is correct.

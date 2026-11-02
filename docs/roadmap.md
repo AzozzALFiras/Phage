@@ -38,7 +38,9 @@ The first real value.
 - [x] `phage` CLI over a Unix control socket: `status`, `events [n]`, and
       `thaw <pid>` to release a false positive. Verified live against the attack.
 - [x] Race-free provenance: loginuid is now read in-kernel (eBPF), not from /proc.
-- [ ] Threshold tuning via a config file.
+- [x] Threshold tuning via a YAML config file (`-config`), overlaid on defaults
+      and validated (notify ≤ contain, both in [0,1]); explicit flags override
+      the file. Unit-tested, including that the committed example always loads.
 
 ## M2.5 — Exec sensor + containment safety
 - [x] Second eBPF sensor: `sched_process_exec` — catches the universal effect of
