@@ -1,8 +1,8 @@
-# Build output
+# Build output (anchored to repo root so they never match cmd/phage[d]/ sources)
 /bin/
 /dist/
-phage
-phaged
+/phage
+/phaged
 
 # eBPF build artifacts
 /bpf/build/

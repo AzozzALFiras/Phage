@@ -17,6 +17,7 @@ enum phage_event_kind {
 	PHAGE_EVT_FILE         = 5, /* write-open of a persistence/credential file */
 	PHAGE_EVT_ENABLE       = 6, /* high-risk kernel-enabling op (userns/bpf/io_uring/uffd) */
 	PHAGE_EVT_SELFDEF      = 7, /* tamper attempt against the Phage agent itself */
+	PHAGE_EVT_HONEYTOKEN   = 8, /* a process opened a planted decoy (honeytoken) */
 };
 
 /* Enabling-op codes, carried in `flags` on PHAGE_EVT_ENABLE events. */

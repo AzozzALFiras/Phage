@@ -31,6 +31,7 @@ type Config struct {
 	LearnWindow string // minimum learning duration before Alert/Enforce is advised
 	Thresholds  Thresholds
 	Protect     bool // arm eBPF-LSM tamper-resistance (deny signals to the agent); opt-in, needs BPF LSM
+	Honeytokens bool // plant decoy credential files and alert on any read of them; opt-in
 }
 
 // Default returns a safe starting configuration: learn-only, local state, a

@@ -254,6 +254,20 @@ func TestSelfDefenseDecodesOp(t *testing.T) {
 	}
 }
 
+func TestHoneytokenDecodesPath(t *testing.T) {
+	rec := record{kind: 8, pid: 9200, loginUID: 0xFFFFFFFF, comm: "bash", path: "/root/.aws/credentials"}
+	ev, err := Event(rec.bytes())
+	if err != nil {
+		t.Fatalf("Event: %v", err)
+	}
+	if ev.Kind != kind.Honeytoken {
+		t.Fatalf("Kind = %q, want %q", ev.Kind, kind.Honeytoken)
+	}
+	if ev.File.Path != "/root/.aws/credentials" {
+		t.Errorf("File.Path = %q, want the decoy path", ev.File.Path)
+	}
+}
+
 func TestEventRejectsShortSample(t *testing.T) {
 	if _, err := Event([]byte{1, 2, 3}); err == nil {
 		t.Fatal("expected error on short sample")

@@ -73,6 +73,7 @@ baseline** — never a hardcoded rule:
 | **Writes to persistence/credential files** (web-root `.php`, `authorized_keys`, cron) | webshell drop, backdoored keys, persistence | ✅ |
 | **High-risk kernel-enabling ops** by a process with no history of them (userns, eBPF load, io_uring, userfaultfd) | kernel-exploit setup, container escape, eBPF rootkits | ✅ |
 | **Tamper with the agent itself** — kill/stop/ptrace it, or telemetry going silent | EDR blinding / anti-detection | ✅ |
+| **A process reads a planted decoy** (honeytoken) credential file | credential theft, intruder snooping | ✅ |
 
 <sub>✅ verified live against a real attack on a test server</sub>
 

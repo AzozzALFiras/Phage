@@ -24,6 +24,7 @@ import (
 	"github.com/AzozzALFiras/Phage/internal/enrich"
 	"github.com/AzozzALFiras/Phage/internal/event/kind"
 	"github.com/AzozzALFiras/Phage/internal/event/model"
+	"github.com/AzozzALFiras/Phage/internal/honeytoken"
 	"github.com/AzozzALFiras/Phage/internal/policy/engine"
 	"github.com/AzozzALFiras/Phage/internal/policy/mode"
 	"github.com/AzozzALFiras/Phage/internal/response/action"
@@ -114,6 +115,19 @@ func (a *App) Run(ctx context.Context) error {
 	}
 	go a.deadMansSwitch(ctx)
 
+	// Opt-in honeytokens: plant decoy credential files and alert on any read.
+	if a.cfg.Honeytokens {
+		paths, inodes := honeytoken.Seed()
+		if len(inodes) == 0 {
+			log.Printf("honeytokens: none planted (decoy paths already exist?)")
+		} else if err := sensor.SetHoneytokens(inodes); err != nil {
+			log.Printf("honeytokens: %v", err)
+		} else {
+			defer honeytoken.Remove(paths)
+			log.Printf("honeytokens planted: %d decoys — any read of one is a high-confidence alert", len(paths))
+		}
+	}
+
 	// Opt-in tamper-resistance: deny signals that would kill the agent. Loaded as
 	// a separate eBPF-LSM object so a kernel without BPF LSM still runs the agent.
 	if a.cfg.Protect {
@@ -164,6 +178,16 @@ func (a *App) Run(ctx context.Context) error {
 			a.nEvents++
 			a.mu.Unlock()
 			a.respondSelfDefense(ev)
+			continue
+		}
+
+		// A read of a planted decoy is intrinsically high-confidence (nothing
+		// legitimate references it) — surfaced directly, not via the baseline.
+		if ev.Kind == kind.Honeytoken {
+			a.mu.Lock()
+			a.nEvents++
+			a.mu.Unlock()
+			a.respondHoneytoken(ev)
 			continue
 		}
 
@@ -327,6 +351,25 @@ func (a *App) respondSelfDefense(ev model.Event) {
 	act := action.Action{Type: action.Notify}
 	if a.cfg.Mode == mode.Enforce {
 		act.Type = action.Freeze // contain the tamperer (subject to containmentSafe)
+	}
+	a.respond(ev, v, act)
+}
+
+// respondHoneytoken handles a read of a planted decoy. Nothing legitimate reads
+// these files, so it is a near-zero-false-positive, top-severity verdict surfaced
+// in every mode; the agent itself is excluded (it plants them).
+func (a *App) respondHoneytoken(ev model.Event) {
+	if ev.Comm == "phaged" {
+		return
+	}
+	detail := fmt.Sprintf("read a planted honeytoken decoy %q — near-certain credential theft / intruder snooping", ev.File.Path)
+	v := verdict.Verdict{
+		Score:   1.0,
+		Reasons: []verdict.Reason{{Feature: "honeytoken", Contribution: 1.0, Detail: detail}},
+	}
+	act := action.Action{Type: action.Notify}
+	if a.cfg.Mode == mode.Enforce {
+		act.Type = action.Freeze
 	}
 	a.respond(ev, v, act)
 }

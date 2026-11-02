@@ -103,6 +103,9 @@ func Event(b []byte) (model.Event, error) {
 	if ev.Kind == kind.Enable {
 		ev.EnableOp = enableOpName(r.Flags)
 	}
+	if ev.Kind == kind.Honeytoken {
+		ev.File = model.FileWrite{Path: cString(r.Path[:])}
+	}
 	if ev.Kind == kind.SelfDefense {
 		ev.SelfDefOp = selfDefOp(r.Flags, r.NewEUID)
 	}
@@ -182,6 +185,8 @@ func mapKind(k uint32) kind.Kind {
 		return kind.Enable
 	case 7:
 		return kind.SelfDefense
+	case 8:
+		return kind.Honeytoken
 	default:
 		return kind.Unknown
 	}

@@ -63,9 +63,10 @@ explainable loop* is the new part).
 - Never-lock-out guardrail, chaos-tested (consensus #2).
 
 ### Tier 3 — Autonomy depth + the "immune-system reel" (M)
-- **Honeytokens fused into the kernel sensor** — auto-seed role-matched decoys
-  (`~/.aws/credentials`, fake `id_rsa`, `.env`); a *read* is a near-zero-FP max
-  verdict wired straight to response. Highest-signal detector you can add.
+- **Honeytokens fused into the kernel sensor** — ✅ **shipped** (`phaged
+  -honeytokens`, [demo](demo/honeytokens.md)): decoys planted only where no real
+  file exists, inodes registered in-kernel, any read → CRITICAL, removed on exit.
+  Highest-signal detector; near-zero FP.
 - **Per-process net-quarantine** — the missing rung between alert and freeze: sever
   a process's egress (cgroup/connect BPF) without killing it, so C2 dies but
   forensics live. Reversible, TTL'd.

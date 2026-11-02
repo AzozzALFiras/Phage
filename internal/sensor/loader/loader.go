@@ -8,6 +8,7 @@ package loader
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
@@ -22,9 +23,10 @@ const mapName = "phage_events"
 
 // Sensor is a loaded, attached set of eBPF programs plus their shared ring buffer.
 type Sensor struct {
-	coll   *ebpf.Collection
-	links  []link.Link
-	reader *ringbuf.Reader
+	coll      *ebpf.Collection
+	links     []link.Link
+	reader    *ringbuf.Reader
+	closeOnce sync.Once
 }
 
 // Load reads the compiled object at objPath, loads it into the kernel, attaches
@@ -83,6 +85,26 @@ func (s *Sensor) SetSelfPID(pid uint32) error {
 	return m.Update(uint32(0), pid, ebpf.UpdateAny)
 }
 
+// SetHoneytokens registers decoy inode numbers and arms the honeytoken tripwire.
+// An empty list disarms it. A missing map is not fatal.
+func (s *Sensor) SetHoneytokens(inodes []uint64) error {
+	ht := s.coll.Maps["honeytokens"]
+	armed := s.coll.Maps["ht_armed"]
+	if ht == nil || armed == nil {
+		return nil
+	}
+	for _, ino := range inodes {
+		if err := ht.Update(ino, uint8(1), ebpf.UpdateAny); err != nil {
+			return fmt.Errorf("register honeytoken %d: %w", ino, err)
+		}
+	}
+	on := uint32(0)
+	if len(inodes) > 0 {
+		on = 1
+	}
+	return armed.Update(uint32(0), on, ebpf.UpdateAny)
+}
+
 // Read returns the next raw event sample. It blocks until a sample arrives or
 // the Sensor is closed, in which case it returns ringbuf.ErrClosed.
 func (s *Sensor) Read() ([]byte, error) {
@@ -93,23 +115,21 @@ func (s *Sensor) Read() ([]byte, error) {
 	return rec.RawSample, nil
 }
 
-// Close detaches the program and releases all kernel resources. Closing the
-// reader also unblocks any in-flight Read. It is safe to call more than once.
+// Close detaches the programs and releases all kernel resources. Closing the
+// reader unblocks any in-flight Read, which then returns ringbuf.ErrClosed — the
+// reader is NOT nilled, so a concurrent Read never dereferences nil. Idempotent:
+// the ctx-cancel goroutine and the deferred Close may both call it.
 func (s *Sensor) Close() error {
-	var firstErr error
-	if s.reader != nil {
-		if err := s.reader.Close(); err != nil {
-			firstErr = err
+	s.closeOnce.Do(func() {
+		if s.reader != nil {
+			s.reader.Close()
 		}
-		s.reader = nil
-	}
-	for _, lnk := range s.links {
-		lnk.Close()
-	}
-	s.links = nil
-	if s.coll != nil {
-		s.coll.Close()
-		s.coll = nil
-	}
-	return firstErr
+		for _, lnk := range s.links {
+			lnk.Close()
+		}
+		if s.coll != nil {
+			s.coll.Close()
+		}
+	})
+	return nil
 }

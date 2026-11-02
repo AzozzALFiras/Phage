@@ -47,6 +47,24 @@ struct {
 	__uint(max_entries, 1 << 20); /* 1 MiB */
 } phage_events SEC(".maps");
 
+/* honeytokens maps a decoy file's inode number -> 1. Userspace plants the decoys
+ * (fake credential files nothing legitimate references) and registers their
+ * inodes; any open of one is a near-zero-false-positive sign of an intruder
+ * snooping for secrets. ht_armed gates the per-open inode read so there is no
+ * cost when honeytokens are not in use. */
+struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__uint(max_entries, 256);
+	__type(key, __u64);
+	__type(value, __u8);
+} honeytokens SEC(".maps");
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, __u32);
+	__type(value, __u32);
+} ht_armed SEC(".maps");
+
 /* self_pid holds the Phage agent's own tgid, written by userspace at startup, so
  * the self-defense programs can tell a tamper attempt against the agent from any
  * other signal/ptrace on the box. 0 = unset (self-defense inert). */
@@ -287,6 +305,29 @@ SEC("fentry/security_file_open")
 int BPF_PROG(on_file_open, struct file *file)
 {
 	unsigned int mode = BPF_CORE_READ(file, f_mode);
+
+	/* Honeytoken tripwire: any open (read OR write) of a planted decoy is
+	 * reported. Gated on ht_armed so there is no per-open inode read unless
+	 * honeytokens are actually in use. */
+	__u32 z = 0;
+	__u32 *armed = bpf_map_lookup_elem(&ht_armed, &z);
+	if (armed && *armed) {
+		__u64 ino = BPF_CORE_READ(file, f_inode, i_ino);
+		if (bpf_map_lookup_elem(&honeytokens, &ino)) {
+			char hbuf[256];
+			long hlen = bpf_d_path((struct path *)&file->f_path, hbuf, sizeof(hbuf));
+			struct phage_event *e = bpf_ringbuf_reserve(&phage_events, sizeof(*e), 0);
+			if (e) {
+				struct task_struct *t = bpf_get_current_task_btf();
+				fill_common(e, t, PHAGE_EVT_HONEYTOKEN);
+				if (hlen > 0)
+					bpf_probe_read_kernel_str(&e->path, sizeof(e->path), hbuf);
+				bpf_ringbuf_submit(e, 0);
+			}
+			return 0;
+		}
+	}
+
 	if (!(mode & FMODE_WRITE))
 		return 0;
 
