@@ -31,6 +31,7 @@ type Session struct {
 	ID          int32  // kernel session id (sid)
 	TTY         string // controlling terminal; empty means none
 	Interactive bool   // backed by a real login / ssh session
+	LoginUID    int32  // audit login uid; -1 when there is no login session
 	RemoteAddr  string // set when the session traces back to sshd
 }
 
@@ -56,4 +57,11 @@ type Event struct {
 // privileges. It is a measurement, not a verdict.
 func (e Event) GainedRoot() bool {
 	return e.Creds.UID == 0 || e.Creds.EUID == 0
+}
+
+// RaisedToRoot reports whether an unprivileged real uid is running with a root
+// effective uid — the classic shape of a setuid-style escalation. Unlike a
+// root daemon (uid 0, euid 0), this is privilege being *raised*, not held.
+func (e Event) RaisedToRoot() bool {
+	return e.Creds.UID != 0 && e.Creds.EUID == 0
 }

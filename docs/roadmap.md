@@ -12,9 +12,11 @@ The first real value.
 - [x] Stream events to userspace: sensor loader (`cilium/ebpf`) + ring-buffer
       reader + decode. Verified live on the test server — real credential
       transitions captured end to end (pid, comm, uid/euid, caps).
-- [ ] Measure transition *direction*: a non-root process gaining root (euid
-      0 raised) vs root dropping privileges. Direction is a feature, not a rule.
-- [ ] Enrichment: process lineage, session/TTY provenance.
+- [x] Measure transition *direction*: a non-root process raising to root vs
+      root dropping privileges. Direction is a feature, not a rule.
+- [x] Enrichment: process lineage + session provenance (audit loginuid, tty).
+      Live-verified — the same setuid escalation is told apart by provenance:
+      spawned by systemd with no login session vs run inside an admin login.
 - [ ] Baseline persistence (embedded KV).
 - [ ] Learn mode end-to-end; alert mode with explained verdicts.
 - [ ] Deterministic pipeline tests from recorded fixtures.

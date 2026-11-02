@@ -18,7 +18,8 @@ type Extractor interface {
 
 // Well-known feature keys. Documented in docs/design/analysis-engine.md.
 const (
-	FeatGainedRoot        = "priv.gained_root"        // 1 if the process holds root
+	FeatGainedRoot        = "priv.gained_root"        // 1 if the process holds root (uid or euid 0)
+	FeatRaisedToRoot      = "priv.raised_to_root"     // 1 if an unprivileged uid now has root euid
 	FeatInteractiveOrigin = "priv.interactive_origin" // 1 if traceable to an interactive session
 	FeatHasTTY            = "priv.has_tty"            // 1 if a controlling terminal exists
 	FeatLineageDepth      = "priv.lineage_depth"      // ancestry depth
@@ -34,6 +35,7 @@ type Privilege struct{}
 func (Privilege) Extract(ev model.Event) Vector {
 	v := Vector{
 		FeatGainedRoot:        b2f(ev.GainedRoot()),
+		FeatRaisedToRoot:      b2f(ev.RaisedToRoot()),
 		FeatInteractiveOrigin: b2f(ev.Session.Interactive),
 		FeatHasTTY:            b2f(ev.Session.TTY != ""),
 		FeatLineageDepth:      float64(len(ev.Lineage)),

@@ -10,6 +10,7 @@ import (
 	"github.com/AzozzALFiras/Phage/internal/agent/config"
 	"github.com/AzozzALFiras/Phage/internal/analysis/baseline"
 	"github.com/AzozzALFiras/Phage/internal/analysis/feature"
+	"github.com/AzozzALFiras/Phage/internal/enrich"
 	"github.com/AzozzALFiras/Phage/internal/policy/mode"
 	"github.com/AzozzALFiras/Phage/internal/sensor/decode"
 	"github.com/AzozzALFiras/Phage/internal/sensor/loader"
@@ -17,10 +18,11 @@ import (
 
 // App is a configured, runnable daemon.
 type App struct {
-	cfg     config.Config
-	objPath string
-	profile *baseline.Profile
-	extract feature.Privilege
+	cfg      config.Config
+	objPath  string
+	profile  *baseline.Profile
+	enricher enrich.Enricher
+	extract  feature.Privilege
 }
 
 // New builds an App from config and the path to the compiled eBPF object.
@@ -65,6 +67,7 @@ func (a *App) Run(ctx context.Context) error {
 			log.Printf("decode: %v", err)
 			continue
 		}
+		ev = a.enricher.Enrich(ev)
 
 		vec := a.extract.Extract(ev)
 		if a.cfg.Mode == mode.Learn {
@@ -73,9 +76,16 @@ func (a *App) Run(ctx context.Context) error {
 			}
 		}
 
-		// First-light observability: prove events flow end to end. Scoring and
-		// alerting replace this log in the next milestone.
-		log.Printf("event pid=%d comm=%q uid=%d euid=%d root=%t caps=%#x",
-			ev.PID, ev.Comm, ev.Creds.UID, ev.Creds.EUID, ev.GainedRoot(), ev.Creds.CapEffective)
+		// Only privilege *raises* are worth surfacing while we build out the
+		// scorer; a root daemon holding root is not interesting. This is a
+		// display filter, not detection — the baseline still learns every event.
+		if ev.RaisedToRoot() {
+			parent := ""
+			if len(ev.Lineage) > 0 {
+				parent = ev.Lineage[0].Comm
+			}
+			log.Printf("RAISE pid=%d comm=%q exe=%q parent=%q uid=%d->euid=%d interactive=%t login_uid=%d",
+				ev.PID, ev.Comm, ev.Exe, parent, ev.Creds.UID, ev.Creds.EUID, ev.Session.Interactive, ev.Session.LoginUID)
+		}
 	}
 }
