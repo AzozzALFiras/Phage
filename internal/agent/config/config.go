@@ -23,16 +23,17 @@ type Thresholds struct {
 
 // Config is the full daemon configuration.
 type Config struct {
-	Mode        mode.Mode
-	StatePath   string // where the learned baseline is persisted
-	AuditPath   string // append-only action trail; empty disables auditing
-	ControlPath string // Unix socket for the phage CLI; empty disables it
-	LogLevel    string
-	LearnWindow string // minimum learning duration before Alert/Enforce is advised
-	Thresholds  Thresholds
-	Protect     bool // arm eBPF-LSM tamper-resistance (deny signals to the agent); opt-in, needs BPF LSM
-	Honeytokens bool // plant decoy credential files and alert on any read of them; opt-in
-	Heal        bool // self-heal: restore sentinel files after a malicious write (enforce); opt-in
+	Mode         mode.Mode
+	StatePath    string // where the learned baseline is persisted
+	AuditPath    string // append-only action trail; empty disables auditing
+	ControlPath  string // Unix socket for the phage CLI; empty disables it
+	LogLevel     string
+	LearnWindow  string // minimum learning duration before Alert/Enforce is advised
+	Thresholds   Thresholds
+	Protect      bool // arm eBPF-LSM tamper-resistance (deny signals to the agent); opt-in, needs BPF LSM
+	Honeytokens  bool // plant decoy credential files and alert on any read of them; opt-in
+	Heal         bool // self-heal: restore sentinel files after a malicious write (enforce); opt-in
+	ReleaseAfter int  // seconds of quiet before a contained process is auto-released (de-escalation); 0 = default 300
 }
 
 // Default returns a safe starting configuration: learn-only, local state, a

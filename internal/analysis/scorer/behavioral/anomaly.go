@@ -27,8 +27,10 @@ func New(p *baseline.Profile) *Anomaly {
 	return &Anomaly{
 		profile: p,
 		weights: map[string]float64{
-			// privilege-change features
-			feature.FeatRaiseNoSession:    1.0, // raised to root with no login session: the sharpest signal
+			// privilege-change features. FeatRaiseNoSession — a raise to root with
+			// no login session behind it — is the sharpest signal we have, so it is
+			// an override feature (see overrideFeatures) that floors the score rather
+			// than being averaged and diluted; it is not listed here.
 			feature.FeatRaisedToRoot:      0.7, // unprivileged -> root
 			feature.FeatInteractiveOrigin: 0.5,
 			feature.FeatParentComm:        0.4, // an unusual parent for a root transition
@@ -60,14 +62,18 @@ func New(p *baseline.Profile) *Anomaly {
 
 // overrideFeatures are binary "red flags" whose mere presence (when novel for
 // this host) indicates malice on its own — fileless execution, a dynamic-linker
-// hijack. They are scored as a floor on the verdict rather than averaged with
-// the other features, so a single such flag is not diluted by many normal
-// features, and it is caught even when the attacker disguises everything else
-// (a known-looking program and parent). It stays behavioural: a flag the host
-// sets legitimately is learned (surprise 0) and floors nothing.
+// hijack, an unprivileged process reaching root with no login session behind it.
+// They are scored as a floor on the verdict rather than averaged with the other
+// features, so a single such flag is not diluted by many normal features, and it
+// is caught even when the attacker disguises everything else (a known-looking
+// program and parent). It stays behavioural: a flag the host sets legitimately
+// is learned (surprise 0) and floors nothing — a service that routinely setuids
+// to root with no session is learned away, and an interactive sudo never sets
+// the no-session flag at all.
 var overrideFeatures = map[string]bool{
-	feature.FeatExecFileless:  true,
-	feature.FeatExecLdPreload: true,
+	feature.FeatExecFileless:   true,
+	feature.FeatExecLdPreload:  true,
+	feature.FeatRaiseNoSession: true,
 }
 
 // Score implements scorer.Scorer. The score is the weighted, baseline-relative

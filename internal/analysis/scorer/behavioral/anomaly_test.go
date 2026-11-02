@@ -142,6 +142,45 @@ func TestOverrideFeatureFloorsScore(t *testing.T) {
 	}
 }
 
+// A no-session raise to root is an override feature, so it must floor the score
+// high on its own even when every other provenance feature is disguised as this
+// host's normal (known parent, usual lineage depth). Averaging would dilute the
+// single sharpest compromise signal below the containment threshold and leave
+// the graduated-response matrix's RaisedToRoot->Freeze branch unreachable — the
+// exact gap a live experiment surfaced (it scored 0.64, under Contain=0.8).
+func TestNoSessionRootRaiseFloorsScore(t *testing.T) {
+	p := baseline.NewProfile()
+	// Normal: root only ever reached interactively, from a familiar parent.
+	normal := feature.Vector{
+		feature.FeatGainedRoot: 1, feature.FeatRaisedToRoot: 0, feature.FeatRaiseNoSession: 0,
+		feature.FeatInteractiveOrigin: 1, feature.FeatParentComm: 111, feature.FeatLineageDepth: 2,
+	}
+	for i := 0; i < 100; i++ {
+		for k, v := range normal {
+			p.Observe(k, v)
+		}
+	}
+	a := New(p)
+	// Evasive escalation: a familiar parent and the usual lineage depth, so every
+	// averaged feature looks normal — only the no-session root raise is novel.
+	evasive := feature.Vector{
+		feature.FeatGainedRoot: 1, feature.FeatRaisedToRoot: 1, feature.FeatRaiseNoSession: 1,
+		feature.FeatInteractiveOrigin: 0, feature.FeatParentComm: 111, feature.FeatLineageDepth: 2,
+	}
+	if s := a.Score(evasive).Score; s < 0.9 {
+		t.Fatalf("a disguised no-session root raise should floor high (>=0.9), got %.2f", s)
+	}
+	// A service that routinely setuids to root with no session is learned away.
+	for i := 0; i < 100; i++ {
+		for k, v := range evasive {
+			p.Observe(k, v)
+		}
+	}
+	if s := New(p).Score(evasive).Score; s > 0.3 {
+		t.Fatalf("a learned no-session root raise should not keep flooring, got %.2f", s)
+	}
+}
+
 // A never-seen exec inside an interactive session (admin at a keyboard) must
 // score lower than the same exec from a service (no session) — the RCE signal.
 func TestInteractiveExecNoveltyIsDiscounted(t *testing.T) {

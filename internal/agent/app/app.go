@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/AzozzALFiras/Phage/internal/agent/config"
@@ -25,8 +26,8 @@ import (
 	"github.com/AzozzALFiras/Phage/internal/event/kind"
 	"github.com/AzozzALFiras/Phage/internal/event/model"
 	"github.com/AzozzALFiras/Phage/internal/honeytoken"
-	"github.com/AzozzALFiras/Phage/internal/policy/engine"
 	"github.com/AzozzALFiras/Phage/internal/policy/mode"
+	"github.com/AzozzALFiras/Phage/internal/policy/response"
 	"github.com/AzozzALFiras/Phage/internal/response/action"
 	"github.com/AzozzALFiras/Phage/internal/response/contain"
 	"github.com/AzozzALFiras/Phage/internal/response/netquarantine"
@@ -50,7 +51,6 @@ type App struct {
 	fileExtract   feature.Filesystem
 	enableExtract feature.Enable
 	scorer        scorer.Scorer
-	engine        *engine.Engine
 	freezer       *contain.Freezer
 	netq          *netquarantine.Manager
 	healer        *selfheal.Store
@@ -64,6 +64,17 @@ type App struct {
 	nContained  uint64
 	recent      []control.Alert
 	recentLimit int
+
+	// graduated-response state: which processes are contained, at what rung, and
+	// when they last drew a high verdict (for escalation and auto-release).
+	contMu    sync.Mutex
+	contained map[int32]*contState
+}
+
+type contState struct {
+	rung action.Type
+	last time.Time
+	comm string
 }
 
 // New builds an App from config, the path to the compiled eBPF object, and the
@@ -77,17 +88,17 @@ func New(cfg config.Config, objPath string, store profile.Repository) *App {
 		profile:     p,
 		extract:     feature.Privilege{},
 		scorer:      behavioral.New(p), // bound to p; sees whatever we load into it
-		engine:      engine.NewWithThresholds(cfg.Mode, engine.Thresholds(cfg.Thresholds)),
 		freezer:     contain.NewFreezer(),
 		started:     time.Now(),
 		recentLimit: 100,
+		contained:   map[int32]*contState{},
 	}
 }
 
 // Run loads the baseline and the sensor, then processes events until ctx is
 // cancelled. In learn mode it updates and persists the baseline; in alert/
 // enforce mode it scores each event against the baseline and acts via the
-// policy engine.
+// graduated-response matrix.
 func (a *App) Run(ctx context.Context) error {
 	if err := a.store.Load(a.profile); err != nil {
 		return err
@@ -118,6 +129,7 @@ func (a *App) Run(ctx context.Context) error {
 		log.Printf("self-defense arm: %v", err)
 	}
 	go a.deadMansSwitch(ctx)
+	go a.releaseLoop(ctx)
 
 	// Opt-in honeytokens: plant decoy credential files and alert on any read.
 	if a.cfg.Honeytokens {
@@ -250,12 +262,14 @@ func (a *App) Run(ctx context.Context) error {
 			continue
 		}
 
-		// alert / enforce: score against the learned baseline and let the policy
-		// engine decide how forcefully to respond.
+		// alert / enforce: score against the learned baseline, then let the
+		// graduated-response matrix pick the least-invasive sufficient action.
 		v := a.scorer.Score(vec)
-		act := a.engine.Decide(v, ev.PID)
-		if act.Type != action.None {
-			a.respond(ev, v, act)
+		want := response.Decide(ev.Kind, v.Score, a.cfg.Mode,
+			response.Thresholds(a.cfg.Thresholds),
+			response.Context{Interactive: ev.Session.Interactive, RaisedToRoot: ev.RaisedToRoot()})
+		if want != action.None {
+			a.respond(ev, v, want)
 		}
 	}
 }
@@ -274,9 +288,23 @@ func (a *App) onShutdown() error {
 }
 
 // respond logs the verdict, records it to the audit trail, and carries out the
-// action. Containment is attempted only in enforce mode (where the engine emits
-// Freeze); alert mode only ever yields Notify.
-func (a *App) respond(ev model.Event, v verdict.Verdict, act action.Action) {
+// action the matrix chose. Containment (isolate/freeze) is reached only in
+// enforce mode and only above the contain threshold; alert mode yields Notify.
+func (a *App) respond(ev model.Event, v verdict.Verdict, want action.Type) {
+	// Escalation / de-dup: if this process is already contained at an equal or
+	// stronger rung, just refresh its lease and record the alert — don't
+	// re-actuate or spam the log. A strictly stronger action escalates.
+	a.contMu.Lock()
+	if st := a.contained[ev.PID]; st != nil && response.Rung(want) <= response.Rung(st.rung) {
+		st.last = time.Now()
+		a.contMu.Unlock()
+		a.mu.Lock()
+		a.nAlerts++
+		a.mu.Unlock()
+		return
+	}
+	a.contMu.Unlock()
+
 	parent := ev.ParentComm
 	if parent == "" && len(ev.Lineage) > 0 {
 		parent = ev.Lineage[0].Comm
@@ -298,26 +326,30 @@ func (a *App) respond(ev model.Event, v verdict.Verdict, act action.Action) {
 		reason = fmt.Sprintf("%s (op: %s)", reason, ev.EnableOp)
 	}
 	log.Printf("%s score=%.2f action=%s pid=%d comm=%q parent=%q uid=%d->euid=%d interactive=%t :: %s",
-		strings.ToUpper(labelFor(v.Score)), v.Score, act.Type,
+		strings.ToUpper(labelFor(v.Score)), v.Score, want,
 		ev.PID, ev.Comm, parent, ev.Creds.UID, ev.Creds.EUID, ev.Session.Interactive, reason)
 
 	a.audit.Record(audit.Entry{
-		Action: string(act.Type), Score: v.Score, PID: ev.PID, Comm: ev.Comm, Reason: reason,
+		Action: string(want), Score: v.Score, PID: ev.PID, Comm: ev.Comm, Reason: reason,
 	})
 
+	// Actuate the chosen rung.
 	contained := false
-	if act.Type == action.Freeze {
-		// Egress/C2 verdicts prefer the lighter, reversible rung: sever the
-		// process's network but let it keep running (forensics survive), rather
-		// than freezing the whole tree.
-		if ev.Kind == kind.Connect && a.netq != nil {
+	switch want {
+	case action.Isolate:
+		if a.netq != nil {
 			if err := a.netq.Isolate(ev.PID); err != nil {
 				log.Printf("ISOLATE pid=%d failed: %v", ev.PID, err)
 			} else {
 				contained = true
 				log.Printf("CONTAIN pid=%d comm=%q ISOLATED (egress severed, process alive, reversible)", ev.PID, ev.Comm)
 			}
-		} else if ok, why := containmentSafe(ev); !ok {
+		} else { // no eBPF-cgroup isolation available — fall back to freeze
+			want = action.Freeze
+		}
+	}
+	if want == action.Freeze {
+		if ok, why := containmentSafe(ev); !ok {
 			log.Printf("CONTAIN pid=%d comm=%q SKIPPED (%s) — alert only", ev.PID, ev.Comm, why)
 		} else if err := a.freezer.Freeze(ev.PID); err != nil {
 			log.Printf("CONTAIN pid=%d failed: %v", ev.PID, err)
@@ -327,11 +359,17 @@ func (a *App) respond(ev model.Event, v verdict.Verdict, act action.Action) {
 		}
 	}
 
-	// Self-heal a malicious write to a snapshotted sentinel file (enforce). The
-	// engine's Freeze decision marks the write malicious; containment of the
-	// writer is separate (above) — this restores the file itself.
-	if ev.Kind == kind.FileWrite && act.Type == action.Freeze && a.healer != nil && a.healer.Watched(ev.File.Path) {
+	// Self-heal a malicious write to a snapshotted sentinel file. Gated on the
+	// score crossing the containment threshold (the write is judged malicious),
+	// independent of the process-containment rung above.
+	if ev.Kind == kind.FileWrite && v.Score >= a.cfg.Thresholds.Contain && a.healer != nil && a.healer.Watched(ev.File.Path) {
 		go a.selfHeal(ev.File.Path)
+	}
+
+	if contained {
+		a.contMu.Lock()
+		a.contained[ev.PID] = &contState{rung: want, last: time.Now(), comm: ev.Comm}
+		a.contMu.Unlock()
 	}
 
 	a.mu.Lock()
@@ -341,7 +379,7 @@ func (a *App) respond(ev model.Event, v verdict.Verdict, act action.Action) {
 	}
 	a.recent = append(a.recent, control.Alert{
 		Time: time.Now().UTC().Format(time.RFC3339), Score: v.Score,
-		Action: string(act.Type), PID: ev.PID, Comm: ev.Comm, Reason: reason,
+		Action: string(want), PID: ev.PID, Comm: ev.Comm, Reason: reason,
 	})
 	if len(a.recent) > a.recentLimit {
 		a.recent = a.recent[len(a.recent)-a.recentLimit:]
@@ -380,6 +418,9 @@ func (a *App) Thaw(pid int32) error {
 	if a.netq != nil {
 		_ = a.netq.Release(pid)
 	}
+	a.contMu.Lock()
+	delete(a.contained, pid)
+	a.contMu.Unlock()
 	return a.freezer.Thaw(pid)
 }
 
@@ -403,11 +444,9 @@ func (a *App) respondSelfDefense(ev model.Event) {
 		Score:   1.0,
 		Reasons: []verdict.Reason{{Feature: "self.tamper", Contribution: 1.0, Detail: detail}},
 	}
-	act := action.Action{Type: action.Notify}
-	if a.cfg.Mode == mode.Enforce {
-		act.Type = action.Freeze // contain the tamperer (subject to containmentSafe)
-	}
-	a.respond(ev, v, act)
+	want := response.Decide(kind.SelfDefense, 1.0, a.cfg.Mode, response.Thresholds(a.cfg.Thresholds),
+		response.Context{Interactive: ev.Session.Interactive, RaisedToRoot: ev.RaisedToRoot()})
+	a.respond(ev, v, want)
 }
 
 // respondHoneytoken handles a read of a planted decoy. Nothing legitimate reads
@@ -422,11 +461,67 @@ func (a *App) respondHoneytoken(ev model.Event) {
 		Score:   1.0,
 		Reasons: []verdict.Reason{{Feature: "honeytoken", Contribution: 1.0, Detail: detail}},
 	}
-	act := action.Action{Type: action.Notify}
-	if a.cfg.Mode == mode.Enforce {
-		act.Type = action.Freeze
+	want := response.Decide(kind.Honeytoken, 1.0, a.cfg.Mode, response.Thresholds(a.cfg.Thresholds),
+		response.Context{Interactive: ev.Session.Interactive, RaisedToRoot: ev.RaisedToRoot()})
+	a.respond(ev, v, want)
+}
+
+// releaseLoop is graduated de-escalation: a contained process that draws no new
+// high verdict for a quiet window is automatically released. Containment is a
+// lease, not a life sentence — the reversible counterpart to escalation, and
+// part of why enforce is safe to leave on.
+//
+// Crucially this applies only to the Isolate rung. An isolated process keeps
+// running and can still act and emit events, so a genuinely quiet window is real
+// evidence it was benign or transient, and restoring its egress is the right,
+// reversible call. A frozen process is the opposite: it is silent *by
+// construction*, so "no further evidence" is an artifact of the freeze, not a
+// sign of innocence — and freeze is reserved for near-certain verdicts (a
+// honeytoken read, a confirmed no-session privilege escalation). Those are held
+// for a human to thaw (`phage thaw`), never auto-released on a timer. Dead pids
+// are reaped so the lease table does not grow without bound.
+func (a *App) releaseLoop(ctx context.Context) {
+	after := time.Duration(a.cfg.ReleaseAfter) * time.Second
+	if after <= 0 {
+		after = 300 * time.Second
 	}
-	a.respond(ev, v, act)
+	t := time.NewTicker(10 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			now := time.Now()
+			a.contMu.Lock()
+			for pid, st := range a.contained {
+				if !pidAlive(pid) { // process gone (exited, or admin killed it): reap the lease
+					delete(a.contained, pid)
+					continue
+				}
+				if now.Sub(st.last) < after {
+					continue
+				}
+				if st.rung != action.Isolate {
+					continue // freeze is a hold-for-review, not a lease — only a human releases it
+				}
+				if a.netq != nil {
+					_ = a.netq.Release(pid)
+				}
+				log.Printf("DE-ESCALATED pid=%d comm=%q released (%s quiet, egress restored)", pid, st.comm, after)
+				delete(a.contained, pid)
+			}
+			a.contMu.Unlock()
+		}
+	}
+}
+
+// pidAlive reports whether a process still exists. Signal 0 performs the kernel's
+// permission/existence check without delivering a signal: a nil error or EPERM
+// (exists but not ours to signal) both mean alive; ESRCH means gone.
+func pidAlive(pid int32) bool {
+	err := syscall.Kill(int(pid), 0)
+	return err == nil || err == syscall.EPERM
 }
 
 // selfHeal restores a tampered sentinel file after letting the malicious write
@@ -488,11 +583,14 @@ var criticalComms = map[string]bool{
 	"dbus-daemon": true, "phaged": true, "systemd-journal": true,
 }
 
-// containmentSafe decides whether a process may be frozen. It refuses to
+// containmentSafe is the HARD never-lock-out guardrail on a freeze: it refuses to
 // contain (a) anything backed by an interactive login session — never lock out
-// the admin path; (b) control-plane processes or their children; and (c)
-// anything that is not an actual privilege escalation — exec-pattern anomalies
-// alert but never freeze, since they are far more prone to false positives.
+// the admin path — and (b) control-plane processes or their children. It no
+// longer checks "is this a privilege escalation": the graduated-response matrix
+// now decides *which* events ever reach a freeze (a no-session root raise, a
+// honeytoken read, a tamper attempt), so proportionality lives there, and this
+// stays a pure safety gate. Exec/file/enable verdicts never freeze because the
+// matrix returns a lighter rung for them.
 func containmentSafe(ev model.Event) (bool, string) {
 	if ev.Session.Interactive {
 		return false, "interactive login session"
@@ -500,13 +598,10 @@ func containmentSafe(ev model.Event) (bool, string) {
 	if criticalComms[ev.Comm] || criticalComms[ev.ParentComm] {
 		return false, "control-plane process"
 	}
-	if !ev.RaisedToRoot() {
-		return false, "not a privilege escalation"
-	}
 	return true, ""
 }
 
-// labelFor is a coarse display bucket; the policy engine, not this, decides
+// labelFor is a coarse display bucket; the response matrix, not this, decides
 // what to do about a score.
 func labelFor(score float64) string {
 	switch {

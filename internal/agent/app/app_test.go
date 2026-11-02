@@ -8,7 +8,10 @@ import (
 
 // These tests lock in the containment safety contract. They exist because
 // enforce mode once froze SSH logins and locked a server out; the guardrail
-// below must never regress.
+// below must never regress. containmentSafe is now a pure safety gate (never the
+// interactive admin path, never the control plane); WHICH event kinds ever reach
+// a freeze is decided by the graduated-response matrix (see internal/policy/
+// response), not here.
 func TestContainmentSafe(t *testing.T) {
 	// A genuine no-session escalation: unprivileged uid now holds root euid,
 	// no login behind it, ordinary service process.
@@ -21,6 +24,18 @@ func TestContainmentSafe(t *testing.T) {
 		t.Error("a no-session root escalation should be containable")
 	}
 
+	// Freeze-worthy non-escalation events (the matrix only routes high-confidence
+	// kinds here) on an ordinary service process are now containable too.
+	tamper := model.Event{
+		Comm: "bash", ParentComm: "bash",
+		Creds:   model.Credentials{UID: 0, EUID: 0},
+		Session: model.Session{Interactive: false, LoginUID: -1},
+	}
+	if ok, _ := containmentSafe(tamper); !ok {
+		t.Error("a non-interactive, non-control-plane process should be containable")
+	}
+
+	// The hard guardrails: never the admin's own session, never the control plane.
 	cases := []struct {
 		name string
 		ev   model.Event
@@ -34,9 +49,6 @@ func TestContainmentSafe(t *testing.T) {
 		}},
 		{"systemd itself", model.Event{
 			Comm: "systemd", Creds: model.Credentials{UID: 0, EUID: 0},
-		}},
-		{"exec anomaly, no actual escalation", model.Event{
-			Comm: "nc", ParentComm: "node", Creds: model.Credentials{UID: 999, EUID: 999},
 		}},
 	}
 	for _, c := range cases {
