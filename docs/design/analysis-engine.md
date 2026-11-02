@@ -25,11 +25,18 @@ The learned notion of "normal" for *this host*. The first implementation is a
 **frequency model**: for each feature key it counts how often each value has
 been seen, and exposes:
 - `Observe(key, value)` — learn (learn mode only).
-- `Surprise(key, value) → 0..1` — how unexpected a value is. Unseen value against
-  a well-sampled feature → near 1. **Unsampled feature → 0** (neutral), so an
-  empty baseline never invents anomalies.
+- `Surprise(key, value) → 0..1` — how unexpected a value is. It measures
+  **novelty, not rarity**: a value seen enough times to be *established* is not
+  surprising at all (0), however small its share of all events; a never-seen
+  value is maximally surprising (1); in between it ramps. **Unsampled feature →
+  0** (neutral), so an empty baseline never invents anomalies. This distinction
+  is what keeps high-cardinality features (exec pairs, ports) quiet: a
+  probability-share measure (`1 - count/total`) would brand a pair seen hundreds
+  of times as surprising simply because the host runs many distinct pairs — a
+  flaw caught live in the [egress demo](../demo/egress-detection.md).
 - `Samples(key)` — confidence; lets callers distinguish "confidently normal"
-  from "not yet learned".
+  from "not yet learned". A feature below `minConfidentSamples` has its
+  contribution scaled down, so a fresh agent never raises confident alerts.
 
 ### Planned evolution (seam stays fixed)
 1. **Co-occurrence** — not just "is this value normal" but "is this *combination*

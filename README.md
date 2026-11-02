@@ -59,10 +59,10 @@ baseline** — never a hardcoded rule:
 |---|---|---|
 | A process reaches **root with no login session** behind it | Linux/kernel privesc, SQLi/RCE → root | ✅ |
 | A service spawns a **never-before-seen program** (parent→child) | PHP/Node RCE, command injection, webshells, reverse shells | ✅ |
-| **Outbound connection from a process that never egresses** | reverse shells, C2, exfil | 🟡 built, pending live verify |
+| **Outbound connection from a process that never egresses** | reverse shells, C2, exfil | ✅ |
 | Writes to persistence/credential files (web-root `.php`, `authorized_keys`, cron) | webshell drop, persistence | ◻ planned |
 
-<sub>✅ verified live against a real attack · 🟡 code-complete and unit-tested, awaiting kernel verification on the test box · ◻ planned</sub>
+<sub>✅ verified live against a real attack on a test server · ◻ planned</sub>
 
 What it **cannot** see, stated plainly: XSS (runs in the victim's browser) and raw
 SQL-injection payloads (inside the DB query) are not host-observable. Phage
@@ -102,10 +102,13 @@ sensors. Architecture and the design decisions behind it:
 
 ## Status
 
-🚧 **Early but real.** Privilege-escalation and exec detection work end to end,
-with reversible containment, an audit trail, and an operator CLI — all verified
-live against a remote attack. Network/file sensors and the auto-jail module are
-next ([roadmap](docs/roadmap.md)). Not yet production-ready.
+🚧 **Early but real.** Privilege-escalation, exec, and **egress** detection work
+end to end, with reversible containment, an audit trail, and an operator CLI —
+all verified live against real attacks on a test server
+([privesc](docs/demo/external-escalation.md),
+[reverse shell](docs/demo/egress-detection.md)). The file/persistence sensor and
+the auto-jail module are next ([roadmap](docs/roadmap.md)). Not yet
+production-ready.
 
 ## License
 

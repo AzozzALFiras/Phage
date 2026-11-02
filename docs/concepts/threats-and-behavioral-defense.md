@@ -87,7 +87,7 @@ subset of 5, and the *outcome* of 4 are covered; 6 is intentionally not.
 |---|--------|-----------------|
 | 1 | A long-lived service spawns a never-seen program (shell/utility) — parent→child pair anomaly | ✅ exec sensor (`sched_process_exec`) |
 | 2 | An unprivileged process reaches root with **no login session** behind it | ✅ privilege sensor (`commit_creds`) + provenance |
-| 3 | Outbound connection from a process that normally never egresses | 🟡 egress sensor (`tcp_connect`) — built + unit-tested, pending live verify. See [egress-detection](egress-detection.md) |
+| 3 | Outbound connection from a process that normally never egresses | ✅ egress sensor (`tcp_connect`) — live-verified. See [egress-detection](egress-detection.md) and the [demo](../demo/egress-detection.md) |
 | 4 | Writes to persistence/credential artifacts (`authorized_keys`, `/etc/cron*`, web-root `*.php`, `ld.so.preload`) | ◻ planned (file sensor) |
 | 5 | Dangerous enabling syscalls (`unshare` userns, `io_uring_setup`, `bpf`, `LD_PRELOAD` in envp) from service accounts | ◻ planned |
 

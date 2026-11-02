@@ -38,20 +38,37 @@ func (p *Profile) Observe(key string, value float64) {
 	p.totals[key]++
 }
 
+// establishedSupport is how many times a specific value must have been observed
+// before Phage treats it as established "normal" for this host. Below it, the
+// value is partially novel; at or above it, not surprising at all.
+const establishedSupport = 5
+
 // Surprise returns how unexpected (0..1) a feature value is given what has been
-// learned. A never-seen value against a well-sampled feature is maximally
-// surprising; an unsampled feature is neutral (0) until it has been learned, so
-// an empty baseline never fabricates anomalies.
+// learned. It measures *novelty*, not rarity: a value never seen before is
+// maximally surprising (1.0); a value seen enough to be established is not
+// surprising at all (0.0), no matter how small a share of the total it is.
+//
+// This distinction matters for high-cardinality features. A server runs many
+// distinct parent->child pairs and talks to many ports; any one of them is a
+// small fraction of all events, so a probability-share measure (1 - count/total)
+// would brand even a pair seen hundreds of times as "surprising" and drown the
+// real signal in noise. Novelty asks the question that actually matters — "have
+// I seen this on this host, and enough to trust it?" — so only genuinely new
+// behaviour (a service that never egressed suddenly dialing out) scores high.
+//
+// An unsampled feature is neutral (0) until it has been learned, so an empty
+// baseline never fabricates anomalies.
 func (p *Profile) Surprise(key string, value float64) float64 {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	total := p.totals[key]
-	if total == 0 {
+	if p.totals[key] == 0 {
 		return 0
 	}
 	seen := p.counts[key][value]
-	prob := float64(seen) / float64(total)
-	return 1 - prob
+	if seen >= establishedSupport {
+		return 0
+	}
+	return 1 - float64(seen)/float64(establishedSupport)
 }
 
 // Samples reports how many observations back a feature. Callers use it to tell

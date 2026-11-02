@@ -60,9 +60,19 @@ The first real value.
       loopback dropped in-kernel, destination kept for the audit trail but not
       learned (IPs are too high-cardinality). Unit-tested (decode layout + IPv4/
       IPv6 destination + extractor keying).
-- [ ] Live kernel verification on the test box (fentry attach on `tcp_connect`,
-      real reverse-shell callback flagged) — **blocked on server reboot.**
+- [x] Live-verified on the test box (kernel 7.0): the sensor loads and all three
+      programs pass the verifier; a service-spawned `bash` dialing out was flagged
+      **CRITICAL (0.84)** while a normal `curl` to :443 stayed silent. See
+      [demo/egress-detection](demo/egress-detection.md).
 - See [egress-detection](concepts/egress-detection.md) for the design and gaps.
+
+## Scoring: novelty, not rarity (crosscutting)
+- [x] `baseline.Surprise` now measures whether a value is *established* on the
+      host, not its probability share of all events. The old `1 - count/total`
+      branded even frequently-seen high-cardinality values (exec pairs, ports) as
+      surprising, drowning the real signal; the egress demo surfaced this live.
+      Fixed and regression-tested (`TestSurpriseIsNoveltyNotRarity`); the same
+      attack against the same baseline then produced exactly one alert.
 
 ## M3 — Blast-radius containment (auto-jail)
 - [ ] Learn a service's normal syscall/file/network behavior.
