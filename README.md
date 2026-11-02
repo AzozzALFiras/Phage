@@ -39,6 +39,11 @@ CONTAIN pid=6518 FROZEN (process tree quarantined, reversible)
 Legitimate privilege use inside an SSH login stayed silent. Full write-up:
 [docs/demo/external-escalation.md](docs/demo/external-escalation.md).
 
+**Does it actually work?** Four real attacks, each run with Phage off (it
+succeeds) and on (detected, contained, or blocked), with the raw evidence and a
+one-command way to reproduce it:
+[docs/demo/proof-before-after.md](docs/demo/proof-before-after.md).
+
 ## The thesis
 
 1. **Shrink the attack surface.** Fewer doors, fewer ways in.
