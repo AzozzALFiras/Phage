@@ -51,6 +51,17 @@ The first real value.
 - See [threats-and-behavioral-defense](concepts/threats-and-behavioral-defense.md)
   for the exploit-class → host-effect mapping this sensor set is built against.
 
+## M2.6 — Egress sensor (reverse shells + C2)
+- [x] Third eBPF sensor: `tcp_connect` (fentry) — catches the universal effect of
+      a foothold phoning home (a program with no egress history dialing out) as a
+      novel `program`/`program→port` anomaly. Same object, same ring buffer;
+      loopback dropped in-kernel, destination kept for the audit trail but not
+      learned (IPs are too high-cardinality). Unit-tested (decode layout + IPv4/
+      IPv6 destination + extractor keying).
+- [ ] Live kernel verification on the test box (fentry attach on `tcp_connect`,
+      real reverse-shell callback flagged) — **blocked on server reboot.**
+- See [egress-detection](concepts/egress-detection.md) for the design and gaps.
+
 ## M3 — Blast-radius containment (auto-jail)
 - [ ] Learn a service's normal syscall/file/network behavior.
 - [ ] Generate and apply a least-privilege profile (seccomp/eBPF LSM).

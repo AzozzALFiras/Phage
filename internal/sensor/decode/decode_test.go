@@ -8,33 +8,57 @@ import (
 	"github.com/AzozzALFiras/Phage/internal/event/kind"
 )
 
-// sample builds a raw ring-buffer record matching struct phage_event, so this
-// test also guards the C<->Go layout contract.
-func sample() []byte {
+// record builds a raw ring-buffer sample matching struct phage_event. Every
+// test goes through it, so it also guards the C<->Go layout contract: if the
+// struct grows, Size changes and these tests fail until both sides agree.
+type record struct {
+	kind          uint32
+	pid, ppid     uint32
+	uid, newEUID  uint32
+	loginUID      uint32
+	capEff        uint64
+	daddr         [16]byte
+	dport, family uint16
+	comm, pcomm   string
+}
+
+func (rec record) bytes() []byte {
 	var buf bytes.Buffer
 	fields := []any{
-		uint64(7),          // id
-		uint64(1234),       // ts_ns
-		uint32(2),          // kind = creds_change
-		uint32(4242),       // pid
-		uint32(99),         // ppid
-		uint32(999),        // uid (webapp)
-		uint32(0),          // euid (unused by decode)
-		uint32(0),          // new_euid -> root
-		uint32(0xFFFFFFFF), // loginuid = unset (no login session)
-		uint32(0),          // _pad
-		uint64(0x1ff),      // cap_eff
+		uint64(7),    // id
+		uint64(1234), // ts_ns
+		rec.kind,     // kind
+		rec.pid,      // pid
+		rec.ppid,     // ppid
+		rec.uid,      // uid
+		uint32(0),    // euid (unused by decode)
+		rec.newEUID,  // new_euid
+		rec.loginUID, // loginuid
+		uint32(0),    // _pad
+		rec.capEff,   // cap_eff
+		rec.daddr,    // daddr[16]
+		rec.dport,    // dport
+		rec.family,   // family
+		uint32(0),    // _pad2
 	}
 	for _, f := range fields {
 		binary.Write(&buf, binary.LittleEndian, f)
 	}
 	comm := [16]byte{}
-	copy(comm[:], "rootshell")
+	copy(comm[:], rec.comm)
 	buf.Write(comm[:])
 	pcomm := [16]byte{}
-	copy(pcomm[:], "sh")
+	copy(pcomm[:], rec.pcomm)
 	buf.Write(pcomm[:])
 	return buf.Bytes()
+}
+
+// sample is a no-session setuid escalation (uid 999 -> root euid).
+func sample() []byte {
+	return record{
+		kind: 2, pid: 4242, ppid: 99, uid: 999, newEUID: 0,
+		loginUID: 0xFFFFFFFF, capEff: 0x1ff, comm: "rootshell", pcomm: "sh",
+	}.bytes()
 }
 
 func TestEventDecodesFields(t *testing.T) {
@@ -69,6 +93,48 @@ func TestEventDecodesFields(t *testing.T) {
 	}
 	if ev.Session.LoginUID != -1 {
 		t.Errorf("LoginUID = %d, want -1 (unset)", ev.Session.LoginUID)
+	}
+}
+
+func TestConnectDecodesDestination(t *testing.T) {
+	// 203.0.113.5:4444 — a classic reverse-shell callback. Address bytes are
+	// stored network order (big-endian), as the kernel hands them to us.
+	rec := record{
+		kind: 4, pid: 5000, ppid: 4242, uid: 999,
+		loginUID: 0xFFFFFFFF,
+		daddr:    [16]byte{203, 0, 113, 5},
+		dport:    4444,
+		family:   afInet,
+		comm:     "sh", pcomm: "node",
+	}
+	ev, err := Event(rec.bytes())
+	if err != nil {
+		t.Fatalf("Event: %v", err)
+	}
+	if ev.Kind != kind.Connect {
+		t.Fatalf("Kind = %q, want %q", ev.Kind, kind.Connect)
+	}
+	if ev.Net.DestIP != "203.0.113.5" {
+		t.Errorf("DestIP = %q, want 203.0.113.5", ev.Net.DestIP)
+	}
+	if ev.Net.DestPort != 4444 {
+		t.Errorf("DestPort = %d, want 4444", ev.Net.DestPort)
+	}
+}
+
+func TestConnectDecodesIPv6(t *testing.T) {
+	// 2001:db8::1 in network order.
+	rec := record{
+		kind: 4, pid: 5001, loginUID: 0xFFFFFFFF, dport: 443, family: afInet6,
+		daddr: [16]byte{0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01},
+		comm:  "curl",
+	}
+	ev, err := Event(rec.bytes())
+	if err != nil {
+		t.Fatalf("Event: %v", err)
+	}
+	if ev.Net.DestIP != "2001:db8::1" {
+		t.Errorf("DestIP = %q, want 2001:db8::1", ev.Net.DestIP)
 	}
 }
 

@@ -5,6 +5,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"strings"
 	"sync"
@@ -39,6 +40,7 @@ type App struct {
 	enricher    enrich.Enricher
 	extract     feature.Privilege
 	execExtract feature.Exec
+	netExtract  feature.Network
 	scorer      scorer.Scorer
 	engine      *engine.Engine
 	freezer     *contain.Freezer
@@ -100,7 +102,7 @@ func (a *App) Run(ctx context.Context) error {
 		sensor.Close()
 	}()
 
-	log.Printf("sensor attached (commit_creds); mode=%s obj=%s", a.cfg.Mode, a.objPath)
+	log.Printf("sensors attached (creds, exec, egress); mode=%s obj=%s", a.cfg.Mode, a.objPath)
 
 	if srv, err := control.Serve(ctx, a.cfg.ControlPath, a); err != nil {
 		log.Printf("control socket disabled: %v", err)
@@ -129,6 +131,8 @@ func (a *App) Run(ctx context.Context) error {
 		switch ev.Kind {
 		case kind.Exec:
 			vec = a.execExtract.Extract(ev)
+		case kind.Connect:
+			vec = a.netExtract.Extract(ev)
 		default:
 			vec = a.extract.Extract(ev)
 		}
@@ -176,6 +180,12 @@ func (a *App) respond(ev model.Event, v verdict.Verdict, act action.Action) {
 		parent = ev.Lineage[0].Comm
 	}
 	reason := reasons(v)
+	// For egress anomalies, the concrete destination is the operator's first
+	// question; keep it in the reason and the audit trail even though the IP is
+	// deliberately not a learned feature.
+	if ev.Kind == kind.Connect && ev.Net.DestIP != "" {
+		reason = fmt.Sprintf("%s (-> %s:%d)", reason, ev.Net.DestIP, ev.Net.DestPort)
+	}
 	log.Printf("%s score=%.2f action=%s pid=%d comm=%q parent=%q uid=%d->euid=%d interactive=%t :: %s",
 		strings.ToUpper(labelFor(v.Score)), v.Score, act.Type,
 		ev.PID, ev.Comm, parent, ev.Creds.UID, ev.Creds.EUID, ev.Session.Interactive, reason)

@@ -12,10 +12,16 @@ enum phage_event_kind {
 	PHAGE_EVT_EXEC         = 1,
 	PHAGE_EVT_CREDS_CHANGE = 2,
 	PHAGE_EVT_CAPSET       = 3,
+	PHAGE_EVT_CONNECT      = 4, /* outbound TCP connection (egress) */
 };
 
 /* One privilege-relevant event as captured in-kernel. Userspace enriches it
- * with lineage, session and container context before analysis. */
+ * with lineage, session and container context before analysis.
+ *
+ * The layout is a fixed 112 bytes with no implicit padding, so userspace can
+ * decode it with a single fixed-size read. If you change a field, keep the
+ * total an 8-byte multiple and update the Go mirror in internal/sensor/decode
+ * (its layout test guards the contract). */
 struct phage_event {
 	__u64 id;                   /* pid_tgid at capture time */
 	__u64 ts_ns;                /* bpf_ktime_get_ns */
@@ -28,6 +34,10 @@ struct phage_event {
 	__u32 loginuid;             /* audit login uid; 0xFFFFFFFF if no login session */
 	__u32 _pad;                 /* keep cap_eff 8-byte aligned; mirrored in Go */
 	__u64 cap_eff;              /* effective capability set */
+	__u8  daddr[16];            /* connect: destination IP, network order (v4 in first 4 bytes) */
+	__u16 dport;                /* connect: destination port, host order */
+	__u16 family;               /* connect: AF_INET (2) or AF_INET6 (10) */
+	__u32 _pad2;                /* round the record to 112 bytes; mirrored in Go */
 	char  comm[PHAGE_COMM_LEN];  /* this process (new image name after exec) */
 	char  pcomm[PHAGE_COMM_LEN]; /* immediate parent's comm (race-free, from kernel) */
 };

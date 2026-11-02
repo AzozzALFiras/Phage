@@ -24,6 +24,15 @@ type Credentials struct {
 	CapEffective    uint64
 }
 
+// NetConn describes the destination of an outbound connection. It is set only
+// on Connect events and is the backbone of egress detection: a reverse shell or
+// C2 beacon is a process reaching out to somewhere it has no business going.
+type NetConn struct {
+	DestIP   string // destination address, text form; empty on non-connect events
+	DestPort uint16 // destination port, host order
+	Family   uint16 // AF_INET (2) or AF_INET6 (10)
+}
+
 // Session links an event back to its authenticated origin, if any. This is the
 // backbone of provenance-based detection: a root transition with no interactive
 // session behind it is exactly the signal Phage cares about.
@@ -50,6 +59,7 @@ type Event struct {
 	CWD        string
 	Creds      Credentials
 	Session    Session
+	Net        NetConn   // destination of an outbound connection; set on Connect events
 	Lineage    []ProcRef // ancestry; index 0 is the immediate parent
 	Container  string    // container / cgroup id; empty on a bare host
 }

@@ -11,6 +11,7 @@ Start here. The docs are split so each folder holds one concern.
 - [threat-model](concepts/threat-model.md) — what Phage defends against, and what it does not.
 - [modes](concepts/modes.md) — the learn → alert → enforce ladder.
 - [privilege-escalation](concepts/privilege-escalation.md) — the first module, in depth.
+- [egress-detection](concepts/egress-detection.md) — catching reverse shells and C2 by egress novelty.
 - [threats-and-behavioral-defense](concepts/threats-and-behavioral-defense.md) — exploit classes (PHP/Node/Linux/kernel/SQLi/XSS) → host-observable effects → Phage's signals, with honest blind spots.
 
 ## Design

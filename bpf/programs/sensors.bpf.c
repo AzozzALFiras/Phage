@@ -7,6 +7,9 @@
  *   on_sched_exec   : process executions — a service spawning a shell is the
  *                     universal effect of RCE (PHP/Node/command injection/
  *                     SQLi->OS), caught as a never-before-seen parent->child pair.
+ *   on_tcp_connect  : outbound connections — a reverse shell or C2 beacon is the
+ *                     universal effect of a foothold phoning home, caught as a
+ *                     program that has no history of egressing suddenly dialing out.
  *
  * Author anywhere; build + attach on Linux with CO-RE (needs kernel BTF). See
  * docs/guides/development.md.
@@ -15,10 +18,16 @@
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_core_read.h>
 #include <bpf/bpf_tracing.h>
+#include <bpf/bpf_endian.h>
 
 #include "common/events.bpf.h"
 
 char LICENSE[] SEC("license") = "GPL";
+
+/* Address families. These live in UAPI headers, not in kernel BTF, so the
+ * CO-RE object has to define them itself. */
+#define AF_INET  2
+#define AF_INET6 10
 
 struct {
 	__uint(type, BPF_MAP_TYPE_RINGBUF);
@@ -43,6 +52,11 @@ static __always_inline void fill_common(struct phage_event *e,
 	e->loginuid = BPF_CORE_READ(task, loginuid.val);
 	e->cap_eff = 0;
 	e->_pad = 0;
+	/* network fields default to zero; only on_tcp_connect fills them. */
+	__builtin_memset(e->daddr, 0, sizeof(e->daddr));
+	e->dport = 0;
+	e->family = 0;
+	e->_pad2 = 0;
 	bpf_get_current_comm(&e->comm, sizeof(e->comm));
 	BPF_CORE_READ_STR_INTO(&e->pcomm, task, real_parent, comm);
 }
@@ -76,6 +90,41 @@ int BPF_PROG(on_sched_exec, struct task_struct *p, pid_t old_pid, struct linux_b
 	fill_common(e, task, PHAGE_EVT_EXEC);
 	/* mirror the current euid so the raise check still applies to setuid execs */
 	e->new_euid = BPF_CORE_READ(task, cred, euid.val);
+	bpf_ringbuf_submit(e, 0);
+	return 0;
+}
+
+/* tcp_connect is the single chokepoint for TCP active opens (both IPv4 and
+ * IPv6 reach it once the destination is set). We read the destination before
+ * reserving a ring-buffer slot so filtered connections cost nothing downstream;
+ * loopback is dropped in-kernel to keep the hot path and the baseline clean. */
+SEC("fentry/tcp_connect")
+int BPF_PROG(on_tcp_connect, struct sock *sk)
+{
+	__u16 family = BPF_CORE_READ(sk, __sk_common.skc_family);
+	if (family != AF_INET && family != AF_INET6)
+		return 0;
+
+	__u8 daddr[16] = {};
+	if (family == AF_INET) {
+		__be32 d = BPF_CORE_READ(sk, __sk_common.skc_daddr);
+		/* skc_daddr is network order; its first octet is the low byte. */
+		if ((d & 0xff) == 127) /* 127.0.0.0/8 loopback */
+			return 0;
+		__builtin_memcpy(daddr, &d, sizeof(d));
+	} else {
+		BPF_CORE_READ_INTO(&daddr, sk, __sk_common.skc_v6_daddr.in6_u.u6_addr8);
+	}
+	__be16 dport = BPF_CORE_READ(sk, __sk_common.skc_dport);
+
+	struct phage_event *e = bpf_ringbuf_reserve(&phage_events, sizeof(*e), 0);
+	if (!e)
+		return 0;
+	struct task_struct *task = bpf_get_current_task_btf();
+	fill_common(e, task, PHAGE_EVT_CONNECT);
+	__builtin_memcpy(e->daddr, daddr, sizeof(e->daddr));
+	e->dport = bpf_ntohs(dport);
+	e->family = family;
 	bpf_ringbuf_submit(e, 0);
 	return 0;
 }

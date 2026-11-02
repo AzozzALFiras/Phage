@@ -38,6 +38,11 @@ func New(p *baseline.Profile) *Anomaly {
 			feature.FeatExecPair:        1.0, // a never-seen parent->child execution: the RCE effect
 			feature.FeatExecInteractive: 0.4,
 			feature.FeatExecChild:       0.3,
+			// network (egress) features
+			feature.FeatNetEgressComm:        1.0, // a program that never egresses dialing out: reverse shell / C2
+			feature.FeatNetEgressPair:        0.8, // ...to a port it never uses
+			feature.FeatNetEgressInteractive: 0.4,
+			feature.FeatNetEgressPort:        0.3,
 		},
 	}
 }
@@ -108,6 +113,14 @@ func explain(key string, val, surprise float64) string {
 	case feature.FeatExecInteractive:
 		if val == 0 {
 			return "program launched by a service with no interactive session"
+		}
+	case feature.FeatNetEgressComm:
+		return "an outbound connection from a program that has never egressed on this host"
+	case feature.FeatNetEgressPair:
+		return "an outbound connection to a destination port this program never uses"
+	case feature.FeatNetEgressInteractive:
+		if val == 0 {
+			return "outbound connection from a process with no interactive session"
 		}
 	case feature.FeatRaiseNoSession:
 		if val == 1 {

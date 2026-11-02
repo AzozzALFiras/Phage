@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"net"
 	"time"
 
 	"github.com/AzozzALFiras/Phage/internal/event/kind"
@@ -27,15 +28,25 @@ type raw struct {
 	LoginUID uint32
 	Pad      uint32
 	CapEff   uint64
+	DAddr    [16]byte // destination IP, network order (connect events)
+	DPort    uint16   // destination port, host order
+	Family   uint16   // AF_INET (2) or AF_INET6 (10)
+	Pad2     uint32
 	Comm     [16]byte
 	PComm    [16]byte
 }
 
 // Size is the expected sample length in bytes.
-const Size = 88
+const Size = 112
 
 // loginUIDUnset is the kernel's "no login session" sentinel, (uid_t)-1.
 const loginUIDUnset = 0xFFFFFFFF
+
+// Address families, as the kernel reports them (UAPI values).
+const (
+	afInet  = 2
+	afInet6 = 10
+)
 
 // Event decodes one raw sample. Samples are little-endian (the kernel writes
 // host byte order; Phage targets x86_64/arm64, both little-endian).
@@ -69,7 +80,28 @@ func Event(b []byte) (model.Event, error) {
 		ev.Session.LoginUID = int32(r.LoginUID)
 		ev.Session.Interactive = true
 	}
+	if ev.Kind == kind.Connect {
+		ev.Net = model.NetConn{
+			DestIP:   decodeIP(r.DAddr, r.Family),
+			DestPort: r.DPort,
+			Family:   r.Family,
+		}
+	}
 	return ev, nil
+}
+
+// decodeIP renders the kernel's network-order destination bytes as text. The
+// bytes are already big-endian (network order), which is exactly what net.IP
+// expects, so no byte-swapping is needed here.
+func decodeIP(addr [16]byte, family uint16) string {
+	switch family {
+	case afInet:
+		return net.IP(addr[:4]).String()
+	case afInet6:
+		return net.IP(addr[:16]).String()
+	default:
+		return ""
+	}
 }
 
 func mapKind(k uint32) kind.Kind {
@@ -80,6 +112,8 @@ func mapKind(k uint32) kind.Kind {
 		return kind.CredsChange
 	case 3:
 		return kind.CapSet
+	case 4:
+		return kind.Connect
 	default:
 		return kind.Unknown
 	}

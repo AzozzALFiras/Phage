@@ -70,6 +70,50 @@ func (Exec) Extract(ev model.Event) Vector {
 	}
 }
 
+// Network-event feature keys.
+const (
+	FeatNetEgressComm        = "net.egress_comm_id"      // stable id of the program making the connection
+	FeatNetEgressPort        = "net.egress_port"         // destination port
+	FeatNetEgressPair        = "net.egress_comm_port_id" // stable id of the program->port pair
+	FeatNetEgressInteractive = "net.egress_interactive"  // 1 if a session is behind it
+)
+
+// Network extracts features for an outbound-connection event. The dominant
+// signal mirrors exec's: which programs egress, and to which ports, is highly
+// stable per host. A long-lived service — or a shell it spawned — suddenly
+// dialing out is the universal effect of a reverse shell or C2 beacon, whatever
+// the vulnerability behind it. The destination IP is deliberately *not* a
+// feature: addresses are too high-cardinality to learn (every new IP would look
+// novel), so Phage learns the egress program and port, and keeps the concrete
+// address for the human-readable reason and the audit trail.
+type Network struct{}
+
+// Extract implements Extractor for connect events.
+func (Network) Extract(ev model.Event) Vector {
+	port := strconvPort(ev.Net.DestPort)
+	return Vector{
+		FeatNetEgressComm:        commID(ev.Comm),
+		FeatNetEgressPort:        float64(ev.Net.DestPort),
+		FeatNetEgressPair:        commID(ev.Comm + ":" + port),
+		FeatNetEgressInteractive: b2f(ev.Session.Interactive),
+	}
+}
+
+func strconvPort(p uint16) string {
+	// small, allocation-light itoa for the pair key
+	if p == 0 {
+		return "0"
+	}
+	var b [5]byte
+	i := len(b)
+	for p > 0 {
+		i--
+		b[i] = byte('0' + p%10)
+		p /= 10
+	}
+	return string(b[i:])
+}
+
 func pairID(parent, child string) float64 { return commID(parent + ">" + child) }
 
 func b2f(b bool) float64 {

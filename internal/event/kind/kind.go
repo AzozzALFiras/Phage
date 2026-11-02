@@ -11,6 +11,7 @@ const (
 	Exec        Kind = "exec"         // execve / execveat
 	CredsChange Kind = "creds_change" // commit_creds / setuid family
 	CapSet      Kind = "capset"       // capability changes
+	Connect     Kind = "connect"      // outbound TCP connection (egress)
 	SSHAuth     Kind = "ssh_auth"     // sshd authentication outcome
 	SessionOpen Kind = "session_open" // login / PAM session start
 )
