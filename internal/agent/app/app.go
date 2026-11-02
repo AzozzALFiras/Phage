@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +28,7 @@ import (
 	"github.com/AzozzALFiras/Phage/internal/policy/mode"
 	"github.com/AzozzALFiras/Phage/internal/response/action"
 	"github.com/AzozzALFiras/Phage/internal/response/contain"
+	"github.com/AzozzALFiras/Phage/internal/selfprotect"
 	"github.com/AzozzALFiras/Phage/internal/sensor/decode"
 	"github.com/AzozzALFiras/Phage/internal/sensor/loader"
 	"github.com/AzozzALFiras/Phage/internal/store/profile"
@@ -111,6 +113,23 @@ func (a *App) Run(ctx context.Context) error {
 		log.Printf("self-defense arm: %v", err)
 	}
 	go a.deadMansSwitch(ctx)
+
+	// Opt-in tamper-resistance: deny signals that would kill the agent. Loaded as
+	// a separate eBPF-LSM object so a kernel without BPF LSM still runs the agent.
+	if a.cfg.Protect {
+		if !selfprotect.Available() {
+			log.Printf("self-protection requested (-protect) but BPF LSM is not active; running without it")
+		} else {
+			objPath := filepath.Join(filepath.Dir(a.objPath), "selfprotect.bpf.o")
+			g, err := selfprotect.Arm(objPath, uint32(os.Getpid()), uint32(os.Getppid()))
+			if err != nil {
+				log.Printf("self-protection: %v; running without it", err)
+			} else {
+				defer g.Close()
+				log.Printf("self-protection ARMED: signals that would kill the agent are denied (except from pid 1 / launcher); systemctl stop and reboot still work")
+			}
+		}
+	}
 
 	log.Printf("sensors attached (creds, exec, egress, files, kernel-enabling ops, self-defense); mode=%s obj=%s", a.cfg.Mode, a.objPath)
 

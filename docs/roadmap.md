@@ -115,9 +115,17 @@ Techniques that defeat file-based tooling, caught behaviourally.
       active event stream going silent. Live-verified: a ptrace attach flagged
       CRITICAL while the agent kept running. See
       [demo](demo/agent-self-defense.md).
-- [ ] Enforcement follow-up: `lsm/task_kill` that *denies* the kill, agent binary/
-      map/log write-protection via BPF-LSM, and a watchdog restart — true
-      survive-the-root tamper-resistance (the detection above is the foundation).
+- [x] **Tamper-resistance (enforcement):** `phaged -protect` loads a separate
+      eBPF-LSM object (`selfprotect.bpf.o`, `lsm/task_kill`) that *denies* a
+      lethal/stop signal aimed at the agent from anyone but the launcher, pid 1,
+      or itself — so an attacker (even root) cannot kill it to blind it, while
+      `systemctl stop`/reboot always work. Opt-in; inert without BPF LSM.
+      Live-verified: a root `kill -9` on the agent was refused (EPERM), the agent
+      survived, the launcher stopped it cleanly. See
+      [demo](demo/tamper-resistance.md).
+- [ ] Round out tamper-resistance: write-protect the agent's binary/maps/audit
+      log (`lsm/file_open`/`bpf()` guards) and a watchdog restart. Ceiling stays a
+      ring-0 attacker.
 
 ## Scoring: novelty, not rarity (crosscutting)
 - [x] `baseline.Surprise` now measures whether a value is *established* on the
