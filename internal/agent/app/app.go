@@ -41,6 +41,7 @@ type App struct {
 	extract     feature.Privilege
 	execExtract feature.Exec
 	netExtract  feature.Network
+	fileExtract feature.Filesystem
 	scorer      scorer.Scorer
 	engine      *engine.Engine
 	freezer     *contain.Freezer
@@ -102,7 +103,7 @@ func (a *App) Run(ctx context.Context) error {
 		sensor.Close()
 	}()
 
-	log.Printf("sensors attached (creds, exec, egress); mode=%s obj=%s", a.cfg.Mode, a.objPath)
+	log.Printf("sensors attached (creds, exec, egress, files); mode=%s obj=%s", a.cfg.Mode, a.objPath)
 
 	if srv, err := control.Serve(ctx, a.cfg.ControlPath, a); err != nil {
 		log.Printf("control socket disabled: %v", err)
@@ -133,6 +134,8 @@ func (a *App) Run(ctx context.Context) error {
 			vec = a.execExtract.Extract(ev)
 		case kind.Connect:
 			vec = a.netExtract.Extract(ev)
+		case kind.FileWrite:
+			vec = a.fileExtract.Extract(ev)
 		default:
 			vec = a.extract.Extract(ev)
 		}
@@ -185,6 +188,12 @@ func (a *App) respond(ev model.Event, v verdict.Verdict, act action.Action) {
 	// deliberately not a learned feature.
 	if ev.Kind == kind.Connect && ev.Net.DestIP != "" {
 		reason = fmt.Sprintf("%s (-> %s:%d)", reason, ev.Net.DestIP, ev.Net.DestPort)
+	}
+	// For persistence anomalies, the concrete file written is the operator's
+	// first question; keep it in the reason and the audit trail even though the
+	// learned feature is the coarse class, not the path.
+	if ev.Kind == kind.FileWrite && ev.File.Path != "" {
+		reason = fmt.Sprintf("%s (wrote %s)", reason, ev.File.Path)
 	}
 	log.Printf("%s score=%.2f action=%s pid=%d comm=%q parent=%q uid=%d->euid=%d interactive=%t :: %s",
 		strings.ToUpper(labelFor(v.Score)), v.Score, act.Type,

@@ -43,6 +43,11 @@ func New(p *baseline.Profile) *Anomaly {
 			feature.FeatNetEgressPair:        0.8, // ...to a port it never uses
 			feature.FeatNetEgressInteractive: 0.4,
 			feature.FeatNetEgressPort:        0.3,
+			// filesystem (persistence) features
+			feature.FeatFileWritePair:        1.0, // a program writing a persistence class it never writes: the persistence effect
+			feature.FeatFileWriteCategory:    0.6, // ...a class rarely written on this host at all
+			feature.FeatFileWriteInteractive: 0.4,
+			feature.FeatFileWriteComm:        0.3,
 		},
 	}
 }
@@ -121,6 +126,14 @@ func explain(key string, val, surprise float64) string {
 	case feature.FeatNetEgressInteractive:
 		if val == 0 {
 			return "outbound connection from a process with no interactive session"
+		}
+	case feature.FeatFileWritePair:
+		return "a program wrote a persistence/credential file class it has never written on this host"
+	case feature.FeatFileWriteCategory:
+		return "a write to a persistence/credential file class rarely seen on this host"
+	case feature.FeatFileWriteInteractive:
+		if val == 0 {
+			return "persistence-relevant file written by a process with no interactive session"
 		}
 	case feature.FeatRaiseNoSession:
 		if val == 1 {

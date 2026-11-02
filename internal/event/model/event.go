@@ -5,6 +5,7 @@
 package model
 
 import (
+	"strings"
 	"time"
 
 	"github.com/AzozzALFiras/Phage/internal/event/kind"
@@ -31,6 +32,57 @@ type NetConn struct {
 	DestIP   string // destination address, text form; empty on non-connect events
 	DestPort uint16 // destination port, host order
 	Family   uint16 // AF_INET (2) or AF_INET6 (10)
+}
+
+// FileWrite describes a write-open of a persistence- or credential-relevant
+// file. It is set only on FileWrite events and is the backbone of persistence
+// detection: a program modifying an artifact it has never touched on this host —
+// a webshell dropped into the web root, a key appended to authorized_keys, a
+// cron job planted — is exactly the signal Phage learns to recognise.
+type FileWrite struct {
+	Path     string // resolved path, text form; empty on non-file events
+	Category string // coarse artifact class (see CategorizePath); the learned key
+}
+
+// CategorizePath maps a resolved path to a coarse persistence/credential class.
+// The class — not the raw filename — is what the baseline learns, so "this
+// program writes this *kind* of artifact" stays stable across names (otherwise
+// every freshly-named webshell would look novel). The classes are a scoping
+// vocabulary, never a verdict: whether a program writing a class is malicious is
+// decided by the learned baseline, not here.
+func CategorizePath(p string) string {
+	switch {
+	case strings.HasSuffix(p, "authorized_keys"), strings.HasSuffix(p, "authorized_keys2"):
+		return "ssh_authorized_keys"
+	case strings.Contains(p, "/.ssh/"):
+		return "ssh_dir"
+	case strings.HasPrefix(p, "/etc/cron"), strings.HasPrefix(p, "/var/spool/cron"), strings.Contains(p, "/cron."):
+		return "cron"
+	case strings.HasPrefix(p, "/etc/ld.so."):
+		return "ld_preload"
+	case strings.HasPrefix(p, "/etc/passwd"):
+		return "passwd"
+	case strings.HasPrefix(p, "/etc/shadow"):
+		return "shadow"
+	case strings.HasPrefix(p, "/etc/sudoers"):
+		return "sudoers"
+	case strings.HasSuffix(p, ".service"), strings.HasSuffix(p, ".timer"), strings.HasSuffix(p, ".socket"):
+		return "systemd_unit"
+	case strings.HasSuffix(p, ".php"), strings.HasSuffix(p, ".phtml"),
+		strings.HasSuffix(p, ".php5"), strings.HasSuffix(p, ".php7"), strings.HasSuffix(p, ".phar"):
+		return "web_php"
+	case strings.HasSuffix(p, ".jsp"), strings.HasSuffix(p, ".jspx"), strings.HasSuffix(p, ".war"):
+		return "web_jsp"
+	case strings.HasSuffix(p, ".asp"), strings.HasSuffix(p, ".aspx"):
+		return "web_asp"
+	case strings.HasPrefix(p, "/etc/init.d"), strings.HasPrefix(p, "/etc/rc"):
+		return "init_script"
+	case strings.Contains(p, "/profile.d/"), strings.HasPrefix(p, "/etc/profile"),
+		strings.HasSuffix(p, "/.bashrc"), strings.HasSuffix(p, "/.bash_profile"), strings.HasSuffix(p, "/.profile"):
+		return "shell_rc"
+	default:
+		return "sensitive_write"
+	}
 }
 
 // Session links an event back to its authenticated origin, if any. This is the
@@ -60,6 +112,7 @@ type Event struct {
 	Creds      Credentials
 	Session    Session
 	Net        NetConn   // destination of an outbound connection; set on Connect events
+	File       FileWrite // the persistence/credential file a write-open targeted; set on FileWrite events
 	Lineage    []ProcRef // ancestry; index 0 is the immediate parent
 	Container  string    // container / cgroup id; empty on a bare host
 }

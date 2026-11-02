@@ -20,6 +20,7 @@ type record struct {
 	daddr         [16]byte
 	dport, family uint16
 	comm, pcomm   string
+	path          string
 }
 
 func (rec record) bytes() []byte {
@@ -50,6 +51,9 @@ func (rec record) bytes() []byte {
 	pcomm := [16]byte{}
 	copy(pcomm[:], rec.pcomm)
 	buf.Write(pcomm[:])
+	path := [160]byte{}
+	copy(path[:], rec.path)
+	buf.Write(path[:])
 	return buf.Bytes()
 }
 
@@ -135,6 +139,32 @@ func TestConnectDecodesIPv6(t *testing.T) {
 	}
 	if ev.Net.DestIP != "2001:db8::1" {
 		t.Errorf("DestIP = %q, want 2001:db8::1", ev.Net.DestIP)
+	}
+}
+
+func TestFileWriteDecodesPathAndCategory(t *testing.T) {
+	// A webshell dropped by a service-spawned shell into the web root.
+	rec := record{
+		kind: 5, pid: 6000, ppid: 5999, uid: 33, // www-data
+		loginUID: 0xFFFFFFFF,
+		comm:     "sh", pcomm: "php-fpm",
+		path: "/var/www/html/uploads/shell.php",
+	}
+	ev, err := Event(rec.bytes())
+	if err != nil {
+		t.Fatalf("Event: %v", err)
+	}
+	if ev.Kind != kind.FileWrite {
+		t.Fatalf("Kind = %q, want %q", ev.Kind, kind.FileWrite)
+	}
+	if ev.File.Path != "/var/www/html/uploads/shell.php" {
+		t.Errorf("File.Path = %q, want the webshell path", ev.File.Path)
+	}
+	if ev.File.Category != "web_php" {
+		t.Errorf("File.Category = %q, want web_php", ev.File.Category)
+	}
+	if ev.Session.Interactive {
+		t.Error("Interactive = true, want false (no login session behind a webshell drop)")
 	}
 }
 

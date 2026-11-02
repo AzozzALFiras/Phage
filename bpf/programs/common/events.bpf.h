@@ -6,6 +6,7 @@
 #define PHAGE_EVENTS_BPF_H
 
 #define PHAGE_COMM_LEN 16
+#define PHAGE_PATH_LEN 160
 
 enum phage_event_kind {
 	PHAGE_EVT_UNKNOWN      = 0,
@@ -13,12 +14,13 @@ enum phage_event_kind {
 	PHAGE_EVT_CREDS_CHANGE = 2,
 	PHAGE_EVT_CAPSET       = 3,
 	PHAGE_EVT_CONNECT      = 4, /* outbound TCP connection (egress) */
+	PHAGE_EVT_FILE         = 5, /* write-open of a persistence/credential file */
 };
 
 /* One privilege-relevant event as captured in-kernel. Userspace enriches it
  * with lineage, session and container context before analysis.
  *
- * The layout is a fixed 112 bytes with no implicit padding, so userspace can
+ * The layout is a fixed 272 bytes with no implicit padding, so userspace can
  * decode it with a single fixed-size read. If you change a field, keep the
  * total an 8-byte multiple and update the Go mirror in internal/sensor/decode
  * (its layout test guards the contract). */
@@ -40,6 +42,7 @@ struct phage_event {
 	__u32 _pad2;                /* round the record to 112 bytes; mirrored in Go */
 	char  comm[PHAGE_COMM_LEN];  /* this process (new image name after exec) */
 	char  pcomm[PHAGE_COMM_LEN]; /* immediate parent's comm (race-free, from kernel) */
+	char  path[PHAGE_PATH_LEN];  /* file event: resolved write path (bpf_d_path), truncated */
 };
 
 #endif /* PHAGE_EVENTS_BPF_H */

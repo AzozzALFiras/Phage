@@ -1,9 +1,9 @@
 # Quickstart
 
 > ⚠️ Early but working. The daemon loads the eBPF sensors, learns a baseline,
-> and scores/contains in alert and enforce modes (privilege-escalation and exec
-> detection are live-verified; the egress sensor is built and pending live
-> verification). The hosted installer below is still a placeholder — build from
+> and scores/contains in alert and enforce modes. All four sensors —
+> privilege-escalation, exec, egress, and file/persistence — are live-verified on
+> a test server. The hosted installer below is still a placeholder — build from
 > source for now. See [development](development.md).
 
 ## Requirements

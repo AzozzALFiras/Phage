@@ -99,6 +99,35 @@ func (Network) Extract(ev model.Event) Vector {
 	}
 }
 
+// File-event feature keys.
+const (
+	FeatFileWriteCategory    = "fs.write_category_id"      // stable id of the artifact class written
+	FeatFileWritePair        = "fs.write_comm_category_id" // stable id of the program->class pair
+	FeatFileWriteComm        = "fs.write_comm_id"          // stable id of the writing program
+	FeatFileWriteInteractive = "fs.write_interactive"      // 1 if a session is behind it
+)
+
+// Filesystem extracts features for a write to a persistence/credential artifact.
+// The dominant signal mirrors exec and egress: which program writes which *class*
+// of sensitive artifact is highly stable per host. A service — or a shell it
+// spawned — dropping a webshell into the web root, or appending a key to
+// authorized_keys, is a never-seen program->class pair: the universal effect of
+// an attacker establishing persistence, whatever bug got them there. The raw
+// path is kept for the reason and the audit trail but is deliberately *not* a
+// feature: filenames are too high-cardinality to learn (every new name would
+// look novel), so Phage learns the writing program and the artifact class.
+type Filesystem struct{}
+
+// Extract implements Extractor for file-write events.
+func (Filesystem) Extract(ev model.Event) Vector {
+	return Vector{
+		FeatFileWriteCategory:    commID(ev.File.Category),
+		FeatFileWritePair:        commID(ev.Comm + ":" + ev.File.Category),
+		FeatFileWriteComm:        commID(ev.Comm),
+		FeatFileWriteInteractive: b2f(ev.Session.Interactive),
+	}
+}
+
 func strconvPort(p uint16) string {
 	// small, allocation-light itoa for the pair key
 	if p == 0 {

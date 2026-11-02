@@ -34,10 +34,11 @@ type raw struct {
 	Pad2     uint32
 	Comm     [16]byte
 	PComm    [16]byte
+	Path     [160]byte // file event: resolved write path, NUL-terminated
 }
 
 // Size is the expected sample length in bytes.
-const Size = 112
+const Size = 272
 
 // loginUIDUnset is the kernel's "no login session" sentinel, (uid_t)-1.
 const loginUIDUnset = 0xFFFFFFFF
@@ -87,6 +88,10 @@ func Event(b []byte) (model.Event, error) {
 			Family:   r.Family,
 		}
 	}
+	if ev.Kind == kind.FileWrite {
+		path := cString(r.Path[:])
+		ev.File = model.FileWrite{Path: path, Category: model.CategorizePath(path)}
+	}
 	return ev, nil
 }
 
@@ -114,6 +119,8 @@ func mapKind(k uint32) kind.Kind {
 		return kind.CapSet
 	case 4:
 		return kind.Connect
+	case 5:
+		return kind.FileWrite
 	default:
 		return kind.Unknown
 	}

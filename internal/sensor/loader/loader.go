@@ -16,8 +16,8 @@ import (
 )
 
 // mapName is the shared ring buffer in bpf/programs/sensors.bpf.c. Every program
-// in the object (commit_creds, sched_exec, tcp_connect) is a tracing program and
-// is attached.
+// in the object (commit_creds, sched_exec, tcp_connect, security_file_open) is a
+// tracing program and is attached.
 const mapName = "phage_events"
 
 // Sensor is a loaded, attached set of eBPF programs plus their shared ring buffer.

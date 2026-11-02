@@ -66,6 +66,24 @@ The first real value.
       [demo/egress-detection](demo/egress-detection.md).
 - See [egress-detection](concepts/egress-detection.md) for the design and gaps.
 
+## M2.7 — File/persistence sensor (webshells, keys, cron)
+- [x] Fourth eBPF sensor: `security_file_open` (fentry) with `bpf_d_path` path
+      resolution — catches the universal effect of an intruder establishing
+      persistence (a program writing a persistence/credential artifact class it
+      has never written on this host) as a novel `program→class` anomaly. Same
+      object, same ring buffer. Write-opens in watched trees only (a scoping
+      filter, not a rule); the path is resolved in-kernel and the coarse artifact
+      class assigned in userspace. Unit-tested (272-byte layout + path
+      categorisation + extractor keying).
+- [x] Live-verified on the test box (kernel 7.0): all four programs pass the
+      verifier; a service-spawned `bash` appending to `authorized_keys` was
+      flagged **CRITICAL (0.83)** and dropping a webshell **ALERT (0.57)** — lower
+      because this host legitimately writes PHP, so only the novel *writer* stood
+      out — while a legit `cp` deploy of a `.php` stayed silent. See
+      [demo/file-persistence](demo/file-persistence.md).
+- See [file-persistence-detection](concepts/file-persistence-detection.md) for
+  the design and gaps.
+
 ## Scoring: novelty, not rarity (crosscutting)
 - [x] `baseline.Surprise` now measures whether a value is *established* on the
       host, not its probability share of all events. The old `1 - count/total`

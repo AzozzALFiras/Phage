@@ -12,6 +12,7 @@ const (
 	CredsChange Kind = "creds_change" // commit_creds / setuid family
 	CapSet      Kind = "capset"       // capability changes
 	Connect     Kind = "connect"      // outbound TCP connection (egress)
+	FileWrite   Kind = "file_write"   // write-open of a persistence/credential file
 	SSHAuth     Kind = "ssh_auth"     // sshd authentication outcome
 	SessionOpen Kind = "session_open" // login / PAM session start
 )
