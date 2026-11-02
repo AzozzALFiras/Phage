@@ -97,6 +97,9 @@ func Event(b []byte) (model.Event, error) {
 		path := cString(r.Path[:])
 		ev.File = model.FileWrite{Path: path, Category: model.CategorizePath(path)}
 	}
+	if ev.Kind == kind.Enable {
+		ev.EnableOp = enableOpName(r.Flags)
+	}
 	return ev, nil
 }
 
@@ -114,6 +117,23 @@ func decodeIP(addr [16]byte, family uint16) string {
 	}
 }
 
+// enableOpName maps an enable event's op code (carried in Flags) to its name.
+// The codes mirror enum phage_enable_op in events.bpf.h.
+func enableOpName(op uint32) string {
+	switch op {
+	case 1:
+		return "userns"
+	case 2:
+		return "bpf_load"
+	case 3:
+		return "io_uring"
+	case 4:
+		return "userfaultfd"
+	default:
+		return "unknown"
+	}
+}
+
 func mapKind(k uint32) kind.Kind {
 	switch k {
 	case 1:
@@ -126,6 +146,8 @@ func mapKind(k uint32) kind.Kind {
 		return kind.Connect
 	case 5:
 		return kind.FileWrite
+	case 6:
+		return kind.Enable
 	default:
 		return kind.Unknown
 	}

@@ -33,19 +33,20 @@ import (
 
 // App is a configured, runnable daemon.
 type App struct {
-	cfg         config.Config
-	objPath     string
-	store       profile.Repository
-	profile     *baseline.Profile
-	enricher    enrich.Enricher
-	extract     feature.Privilege
-	execExtract feature.Exec
-	netExtract  feature.Network
-	fileExtract feature.Filesystem
-	scorer      scorer.Scorer
-	engine      *engine.Engine
-	freezer     *contain.Freezer
-	audit       *audit.Writer
+	cfg           config.Config
+	objPath       string
+	store         profile.Repository
+	profile       *baseline.Profile
+	enricher      enrich.Enricher
+	extract       feature.Privilege
+	execExtract   feature.Exec
+	netExtract    feature.Network
+	fileExtract   feature.Filesystem
+	enableExtract feature.Enable
+	scorer        scorer.Scorer
+	engine        *engine.Engine
+	freezer       *contain.Freezer
+	audit         *audit.Writer
 
 	started time.Time
 	// counters and the recent-alerts ring back the control interface.
@@ -103,7 +104,7 @@ func (a *App) Run(ctx context.Context) error {
 		sensor.Close()
 	}()
 
-	log.Printf("sensors attached (creds, exec, egress, files); mode=%s obj=%s", a.cfg.Mode, a.objPath)
+	log.Printf("sensors attached (creds, exec, egress, files, kernel-enabling ops); mode=%s obj=%s", a.cfg.Mode, a.objPath)
 
 	if srv, err := control.Serve(ctx, a.cfg.ControlPath, a); err != nil {
 		log.Printf("control socket disabled: %v", err)
@@ -136,6 +137,8 @@ func (a *App) Run(ctx context.Context) error {
 			vec = a.netExtract.Extract(ev)
 		case kind.FileWrite:
 			vec = a.fileExtract.Extract(ev)
+		case kind.Enable:
+			vec = a.enableExtract.Extract(ev)
 		default:
 			vec = a.extract.Extract(ev)
 		}
@@ -194,6 +197,9 @@ func (a *App) respond(ev model.Event, v verdict.Verdict, act action.Action) {
 	// learned feature is the coarse class, not the path.
 	if ev.Kind == kind.FileWrite && ev.File.Path != "" {
 		reason = fmt.Sprintf("%s (wrote %s)", reason, ev.File.Path)
+	}
+	if ev.Kind == kind.Enable && ev.EnableOp != "" {
+		reason = fmt.Sprintf("%s (op: %s)", reason, ev.EnableOp)
 	}
 	log.Printf("%s score=%.2f action=%s pid=%d comm=%q parent=%q uid=%d->euid=%d interactive=%t :: %s",
 		strings.ToUpper(labelFor(v.Score)), v.Score, act.Type,

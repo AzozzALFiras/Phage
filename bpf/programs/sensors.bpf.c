@@ -15,6 +15,10 @@
  *                     authorized_keys, a cron job planted. The universal effect
  *                     of an attacker digging in, caught as a program writing an
  *                     artifact class it has never written on this host.
+ *   on_*_enable     : high-risk kernel-enabling operations (unprivileged user
+ *                     namespaces, eBPF loads, io_uring, userfaultfd) — the setup
+ *                     an exploit does *before* it escalates. Caught as a program
+ *                     performing an enabling op it has no history of on this host.
  *
  * Author anywhere; build + attach on Linux with CO-RE (needs kernel BTF). See
  * docs/guides/development.md.
@@ -220,3 +224,37 @@ int BPF_PROG(on_file_open, struct file *file)
 	bpf_ringbuf_submit(e, 0);
 	return 0;
 }
+
+/* emit_enable records one high-risk kernel-enabling operation. These functions
+ * are low-frequency, so a program with no history of them doing one stands out —
+ * the setup phase of a kernel exploit or container escape, before escalation. */
+static __always_inline int emit_enable(__u32 op)
+{
+	struct phage_event *e = bpf_ringbuf_reserve(&phage_events, sizeof(*e), 0);
+	if (!e)
+		return 0;
+	struct task_struct *task = bpf_get_current_task_btf();
+	fill_common(e, task, PHAGE_EVT_ENABLE);
+	e->flags = op;
+	bpf_ringbuf_submit(e, 0);
+	return 0;
+}
+
+/* create_user_ns: an unprivileged user namespace — the common enabler of Linux
+ * kernel LPE (it hands an unprivileged process capabilities inside the new ns,
+ * widening the reachable kernel surface). */
+SEC("fentry/create_user_ns")
+int BPF_PROG(on_create_userns) { return emit_enable(PHAGE_ENABLE_USERNS); }
+
+/* bpf_prog_load: loading an eBPF program — legitimate for a few tools, but also
+ * how modern eBPF rootkits install themselves. */
+SEC("fentry/bpf_prog_load")
+int BPF_PROG(on_bpf_load) { return emit_enable(PHAGE_ENABLE_BPF); }
+
+/* io_uring_setup and userfaultfd are recurring exploit primitives (heap
+ * grooming, use-after-free timing). */
+SEC("fentry/io_uring_setup")
+int BPF_PROG(on_io_uring_setup) { return emit_enable(PHAGE_ENABLE_IOURING); }
+
+SEC("fentry/new_userfaultfd")
+int BPF_PROG(on_userfaultfd) { return emit_enable(PHAGE_ENABLE_UFFD); }

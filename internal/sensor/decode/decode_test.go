@@ -195,6 +195,30 @@ func TestExecDecodesFilelessFlag(t *testing.T) {
 	}
 }
 
+func TestEnableDecodesOp(t *testing.T) {
+	// A service-spawned shell creates an unprivileged user namespace — the setup
+	// for a kernel exploit. flags carries the op code (1 = userns).
+	rec := record{
+		kind: 6, pid: 8000, ppid: 7999, loginUID: 0xFFFFFFFF,
+		flags: 1, comm: "bash", pcomm: "php-fpm",
+	}
+	ev, err := Event(rec.bytes())
+	if err != nil {
+		t.Fatalf("Event: %v", err)
+	}
+	if ev.Kind != kind.Enable {
+		t.Fatalf("Kind = %q, want %q", ev.Kind, kind.Enable)
+	}
+	if ev.EnableOp != "userns" {
+		t.Errorf("EnableOp = %q, want userns", ev.EnableOp)
+	}
+	// op code 2 = bpf_load
+	bpf := record{kind: 6, pid: 8001, loginUID: 0xFFFFFFFF, flags: 2, comm: "sh"}
+	if ev2, _ := Event(bpf.bytes()); ev2.EnableOp != "bpf_load" {
+		t.Errorf("EnableOp = %q, want bpf_load", ev2.EnableOp)
+	}
+}
+
 func TestEventRejectsShortSample(t *testing.T) {
 	if _, err := Event([]byte{1, 2, 3}); err == nil {
 		t.Fatal("expected error on short sample")

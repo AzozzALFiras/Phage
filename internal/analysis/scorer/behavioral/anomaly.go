@@ -49,6 +49,10 @@ func New(p *baseline.Profile) *Anomaly {
 			feature.FeatFileWriteCategory:    0.6, // ...a class rarely written on this host at all
 			feature.FeatFileWriteInteractive: 0.4,
 			feature.FeatFileWriteComm:        0.3,
+			// kernel-enabling features (exploit setup, pre-escalation)
+			feature.FeatEnableCommOp:      1.0, // a program doing a high-risk enabling op it never does
+			feature.FeatEnableOp:          0.5, // ...an op rarely done on this host at all
+			feature.FeatEnableInteractive: 0.4,
 		},
 	}
 }
@@ -139,6 +143,14 @@ func explain(key string, val, surprise float64) string {
 	case feature.FeatFileWriteInteractive:
 		if val == 0 {
 			return "persistence-relevant file written by a process with no interactive session"
+		}
+	case feature.FeatEnableCommOp:
+		return "a program performed a high-risk kernel-enabling operation it has never performed on this host"
+	case feature.FeatEnableOp:
+		return "a high-risk kernel-enabling operation rarely performed on this host"
+	case feature.FeatEnableInteractive:
+		if val == 0 {
+			return "high-risk kernel operation from a process with no interactive session"
 		}
 	case feature.FeatRaiseNoSession:
 		if val == 1 {

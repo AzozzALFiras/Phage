@@ -13,6 +13,7 @@ const (
 	CapSet      Kind = "capset"       // capability changes
 	Connect     Kind = "connect"      // outbound TCP connection (egress)
 	FileWrite   Kind = "file_write"   // write-open of a persistence/credential file
+	Enable      Kind = "enable"       // high-risk kernel-enabling op (userns/bpf/io_uring/uffd)
 	SSHAuth     Kind = "ssh_auth"     // sshd authentication outcome
 	SessionOpen Kind = "session_open" // login / PAM session start
 )

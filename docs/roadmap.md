@@ -92,9 +92,12 @@ Techniques that defeat file-based tooling, caught behaviourally.
       heaviest; holds even when the memfd is named after a trusted program.
       Live-verified: a payload run from memory flagged CRITICAL (0.87) while
       on-disk execs stayed silent. See [demo](demo/fileless-execution.md).
-- [ ] Enabling syscalls from service accounts (`unshare` userns, `io_uring_setup`,
-      `bpf`, `userfaultfd`) — the setup an exploit does *before* it escalates
-      (signal #5).
+- [x] **Enabling syscalls** (signal #5) — `fentry` on `create_user_ns`,
+      `bpf_prog_load`, `io_uring_setup`, `new_userfaultfd`. Catches the setup an
+      exploit does *before* it escalates, as a program performing an enabling op
+      it has no history of. Live-verified: a session-less service creating a user
+      namespace flagged while a known admin tool doing the same stayed silent.
+      See [demo](demo/kernel-enabling-ops.md).
 
 ## Scoring: novelty, not rarity (crosscutting)
 - [x] `baseline.Surprise` now measures whether a value is *established* on the

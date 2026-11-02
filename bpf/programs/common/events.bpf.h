@@ -15,6 +15,15 @@ enum phage_event_kind {
 	PHAGE_EVT_CAPSET       = 3,
 	PHAGE_EVT_CONNECT      = 4, /* outbound TCP connection (egress) */
 	PHAGE_EVT_FILE         = 5, /* write-open of a persistence/credential file */
+	PHAGE_EVT_ENABLE       = 6, /* high-risk kernel-enabling op (userns/bpf/io_uring/uffd) */
+};
+
+/* Enabling-op codes, carried in `flags` on PHAGE_EVT_ENABLE events. */
+enum phage_enable_op {
+	PHAGE_ENABLE_USERNS  = 1, /* unprivileged user namespace (create_user_ns) */
+	PHAGE_ENABLE_BPF     = 2, /* eBPF program load (bpf_prog_load) */
+	PHAGE_ENABLE_IOURING = 3, /* io_uring setup */
+	PHAGE_ENABLE_UFFD    = 4, /* userfaultfd */
 };
 
 /* One privilege-relevant event as captured in-kernel. Userspace enriches it
@@ -34,7 +43,7 @@ struct phage_event {
 	__u32 euid;                 /* current effective uid */
 	__u32 new_euid;             /* creds_change: the euid being committed */
 	__u32 loginuid;             /* audit login uid; 0xFFFFFFFF if no login session */
-	__u32 flags;                /* exec: bit 0 = fileless (image has no on-disk link); mirrored in Go */
+	__u32 flags;                /* exec: bit 0 = fileless; enable: op code (enum phage_enable_op); mirrored in Go */
 	__u64 cap_eff;              /* effective capability set */
 	__u8  daddr[16];            /* connect: destination IP, network order (v4 in first 4 bytes) */
 	__u16 dport;                /* connect: destination port, host order */

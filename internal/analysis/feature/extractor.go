@@ -101,6 +101,31 @@ func (Network) Extract(ev model.Event) Vector {
 	}
 }
 
+// Enable-event feature keys.
+const (
+	FeatEnableOp          = "enable.op_id"      // stable id of the enabling op (userns/bpf/...)
+	FeatEnableCommOp      = "enable.comm_op_id" // stable id of the program->op pair
+	FeatEnableInteractive = "enable.interactive"
+)
+
+// Enable extracts features for a high-risk kernel-enabling operation (an
+// unprivileged user namespace, an eBPF load, io_uring, userfaultfd). These are
+// the setup an exploit performs before it escalates. The dominant signal is the
+// program->op pair: which programs legitimately do these is tiny and stable per
+// host (systemd, a container runtime), so a service — or a shell it spawned —
+// doing one it has never done is the signal. These ops are low-frequency, so the
+// baseline learns the legitimate actors quickly.
+type Enable struct{}
+
+// Extract implements Extractor for enable events.
+func (Enable) Extract(ev model.Event) Vector {
+	return Vector{
+		FeatEnableOp:          commID(ev.EnableOp),
+		FeatEnableCommOp:      commID(ev.Comm + ":" + ev.EnableOp),
+		FeatEnableInteractive: b2f(ev.Session.Interactive),
+	}
+}
+
 // File-event feature keys.
 const (
 	FeatFileWriteCategory    = "fs.write_category_id"      // stable id of the artifact class written
