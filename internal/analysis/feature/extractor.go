@@ -48,6 +48,30 @@ func (Privilege) Extract(ev model.Event) Vector {
 	return v
 }
 
+// Exec-event feature keys.
+const (
+	FeatExecPair        = "exec.parent_child_id" // stable id of the parent->child pair
+	FeatExecChild       = "exec.child_id"        // stable id of the executed program
+	FeatExecInteractive = "exec.interactive_origin"
+)
+
+// Exec extracts features for a process-execution event. The dominant signal is
+// the parent->child pair: which programs spawn which is highly stable per host,
+// so a long-lived service suddenly exec'ing a shell is a never-seen pair — the
+// universal effect of RCE, independent of the vulnerability behind it.
+type Exec struct{}
+
+// Extract implements Extractor for exec events.
+func (Exec) Extract(ev model.Event) Vector {
+	return Vector{
+		FeatExecPair:        pairID(ev.ParentComm, ev.Comm),
+		FeatExecChild:       commID(ev.Comm),
+		FeatExecInteractive: b2f(ev.Session.Interactive),
+	}
+}
+
+func pairID(parent, child string) float64 { return commID(parent + ">" + child) }
+
 func b2f(b bool) float64 {
 	if b {
 		return 1

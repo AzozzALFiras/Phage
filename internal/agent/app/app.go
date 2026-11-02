@@ -19,6 +19,7 @@ import (
 	"github.com/AzozzALFiras/Phage/internal/audit"
 	"github.com/AzozzALFiras/Phage/internal/control"
 	"github.com/AzozzALFiras/Phage/internal/enrich"
+	"github.com/AzozzALFiras/Phage/internal/event/kind"
 	"github.com/AzozzALFiras/Phage/internal/event/model"
 	"github.com/AzozzALFiras/Phage/internal/policy/engine"
 	"github.com/AzozzALFiras/Phage/internal/policy/mode"
@@ -31,16 +32,17 @@ import (
 
 // App is a configured, runnable daemon.
 type App struct {
-	cfg      config.Config
-	objPath  string
-	store    profile.Repository
-	profile  *baseline.Profile
-	enricher enrich.Enricher
-	extract  feature.Privilege
-	scorer   scorer.Scorer
-	engine   *engine.Engine
-	freezer  *contain.Freezer
-	audit    *audit.Writer
+	cfg         config.Config
+	objPath     string
+	store       profile.Repository
+	profile     *baseline.Profile
+	enricher    enrich.Enricher
+	extract     feature.Privilege
+	execExtract feature.Exec
+	scorer      scorer.Scorer
+	engine      *engine.Engine
+	freezer     *contain.Freezer
+	audit       *audit.Writer
 
 	started time.Time
 	// counters and the recent-alerts ring back the control interface.
@@ -122,7 +124,14 @@ func (a *App) Run(ctx context.Context) error {
 			continue
 		}
 		ev = a.enricher.Enrich(ev)
-		vec := a.extract.Extract(ev)
+
+		var vec feature.Vector
+		switch ev.Kind {
+		case kind.Exec:
+			vec = a.execExtract.Extract(ev)
+		default:
+			vec = a.extract.Extract(ev)
+		}
 
 		a.mu.Lock()
 		a.nEvents++
@@ -162,8 +171,8 @@ func (a *App) onShutdown() error {
 // action. Containment is attempted only in enforce mode (where the engine emits
 // Freeze); alert mode only ever yields Notify.
 func (a *App) respond(ev model.Event, v verdict.Verdict, act action.Action) {
-	parent := ""
-	if len(ev.Lineage) > 0 {
+	parent := ev.ParentComm
+	if parent == "" && len(ev.Lineage) > 0 {
 		parent = ev.Lineage[0].Comm
 	}
 	reason := reasons(v)
@@ -177,7 +186,9 @@ func (a *App) respond(ev model.Event, v verdict.Verdict, act action.Action) {
 
 	contained := false
 	if act.Type == action.Freeze {
-		if err := a.freezer.Freeze(ev.PID); err != nil {
+		if ok, why := containmentSafe(ev); !ok {
+			log.Printf("CONTAIN pid=%d comm=%q SKIPPED (%s) — alert only", ev.PID, ev.Comm, why)
+		} else if err := a.freezer.Freeze(ev.PID); err != nil {
 			log.Printf("CONTAIN pid=%d failed: %v", ev.PID, err)
 		} else {
 			contained = true
@@ -228,6 +239,34 @@ func (a *App) RecentAlerts(n int) []control.Alert {
 // Thaw implements control.Handler: release a quarantined process (false positive).
 func (a *App) Thaw(pid int32) error {
 	return a.freezer.Thaw(pid)
+}
+
+// criticalComms is a hard safety allowlist: processes Phage must never freeze,
+// because doing so could lock an operator out of the machine or wedge the
+// system. This is a deliberate hardcoded guardrail (not a learned signal) — it
+// exists because enforce mode once froze SSH logins and locked the box out.
+var criticalComms = map[string]bool{
+	"sshd": true, "systemd": true, "init": true, "login": true,
+	"agetty": true, "getty": true, "systemd-logind": true,
+	"dbus-daemon": true, "phaged": true, "systemd-journal": true,
+}
+
+// containmentSafe decides whether a process may be frozen. It refuses to
+// contain (a) anything backed by an interactive login session — never lock out
+// the admin path; (b) control-plane processes or their children; and (c)
+// anything that is not an actual privilege escalation — exec-pattern anomalies
+// alert but never freeze, since they are far more prone to false positives.
+func containmentSafe(ev model.Event) (bool, string) {
+	if ev.Session.Interactive {
+		return false, "interactive login session"
+	}
+	if criticalComms[ev.Comm] || criticalComms[ev.ParentComm] {
+		return false, "control-plane process"
+	}
+	if !ev.RaisedToRoot() {
+		return false, "not a privilege escalation"
+	}
+	return true, ""
 }
 
 // labelFor is a coarse display bucket; the policy engine, not this, decides

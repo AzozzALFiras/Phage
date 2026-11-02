@@ -27,12 +27,17 @@ func New(p *baseline.Profile) *Anomaly {
 	return &Anomaly{
 		profile: p,
 		weights: map[string]float64{
+			// privilege-change features
 			feature.FeatRaiseNoSession:    1.0, // raised to root with no login session: the sharpest signal
 			feature.FeatRaisedToRoot:      0.7, // unprivileged -> root
 			feature.FeatInteractiveOrigin: 0.5,
 			feature.FeatParentComm:        0.4, // an unusual parent for a root transition
 			feature.FeatGainedRoot:        0.2,
 			feature.FeatHasTTY:            0.2,
+			// exec features
+			feature.FeatExecPair:        1.0, // a never-seen parent->child execution: the RCE effect
+			feature.FeatExecInteractive: 0.4,
+			feature.FeatExecChild:       0.3,
 		},
 	}
 }
@@ -78,6 +83,12 @@ func (a *Anomaly) weight(key string) float64 {
 // explain renders a human reason. It describes the deviation, never a verdict.
 func explain(key string, val, surprise float64) string {
 	switch key {
+	case feature.FeatExecPair:
+		return "a program was spawned in a parent->child combination never seen on this host"
+	case feature.FeatExecInteractive:
+		if val == 0 {
+			return "program launched by a service with no interactive session"
+		}
 	case feature.FeatRaiseNoSession:
 		if val == 1 {
 			return "raised to root with no login session behind it (never seen on this host)"

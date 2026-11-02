@@ -29,6 +29,26 @@ only climbs when the operator is ready.
 - Default containment is **freeze** (cgroup-freeze the process tree), not kill —
   reversible, so a mistake is recoverable. Kill/isolate are opt-in.
 
+## Containment safety — what enforce will NEVER freeze
+Learned the hard way: an early enforce build froze the shell of an incoming SSH
+login (a program combination its baseline had never seen) and locked the server
+out. Autonomy must never be able to wedge the machine or lock out the operator,
+so containment has hard guardrails that sit *above* the score (`containmentSafe`
+in `internal/agent/app`):
+
+1. **Never freeze an interactive login session.** Anything with a login
+   session behind it (loginuid set) is the admin path and is exempt — Phage
+   alerts, never contains, there.
+2. **Never freeze the control plane.** `sshd`, `systemd`, `init`, `login`,
+   `getty`, `systemd-logind`, `dbus-daemon`, and `phaged` itself (and their
+   direct children) are never frozen.
+3. **Only contain an actual privilege escalation.** A generic exec-pattern
+   anomaly alerts but never freezes; freezing is reserved for an unprivileged
+   process that reached root with no session — the high-confidence signal.
+
+These are deliberate hardcoded rules, not learned behaviour: safety of the
+control plane is not something to infer from a baseline.
+
 ## Why this ordering is non-negotiable
 An anomaly model is only as trustworthy as its baseline. The ladder guarantees
 Phage can never act on a baseline it has not earned. It also gives operators a

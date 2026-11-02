@@ -28,10 +28,11 @@ type raw struct {
 	Pad      uint32
 	CapEff   uint64
 	Comm     [16]byte
+	PComm    [16]byte
 }
 
 // Size is the expected sample length in bytes.
-const Size = 72
+const Size = 88
 
 // loginUIDUnset is the kernel's "no login session" sentinel, (uid_t)-1.
 const loginUIDUnset = 0xFFFFFFFF
@@ -47,12 +48,13 @@ func Event(b []byte) (model.Event, error) {
 		return model.Event{}, fmt.Errorf("decode sample: %w", err)
 	}
 	ev := model.Event{
-		ID:   r.ID,
-		Time: time.Now(), // ts_ns is monotonic-since-boot; wall clock added here
-		Kind: mapKind(r.Kind),
-		PID:  int32(r.PID),
-		PPID: int32(r.PPID),
-		Comm: cString(r.Comm[:]),
+		ID:         r.ID,
+		Time:       time.Now(), // ts_ns is monotonic-since-boot; wall clock added here
+		Kind:       mapKind(r.Kind),
+		PID:        int32(r.PID),
+		PPID:       int32(r.PPID),
+		Comm:       cString(r.Comm[:]),
+		ParentComm: cString(r.PComm[:]),
 		Creds: model.Credentials{
 			UID:          int32(r.UID),
 			EUID:         int32(r.NewEUID), // the euid being committed is what matters

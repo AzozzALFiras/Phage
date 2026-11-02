@@ -38,19 +38,20 @@ type Session struct {
 // Event is the unit of analysis: an enriched, self-contained description of one
 // privilege-relevant thing that happened.
 type Event struct {
-	ID        uint64
-	Time      time.Time
-	Kind      kind.Kind
-	PID       int32
-	PPID      int32
-	Comm      string
-	Exe       string
-	Args      []string
-	CWD       string
-	Creds     Credentials
-	Session   Session
-	Lineage   []ProcRef // ancestry; index 0 is the immediate parent
-	Container string    // container / cgroup id; empty on a bare host
+	ID         uint64
+	Time       time.Time
+	Kind       kind.Kind
+	PID        int32
+	PPID       int32
+	Comm       string
+	ParentComm string // immediate parent's comm, captured in-kernel (race-free)
+	Exe        string
+	Args       []string
+	CWD        string
+	Creds      Credentials
+	Session    Session
+	Lineage    []ProcRef // ancestry; index 0 is the immediate parent
+	Container  string    // container / cgroup id; empty on a bare host
 }
 
 // GainedRoot reports whether this event represents the process holding root

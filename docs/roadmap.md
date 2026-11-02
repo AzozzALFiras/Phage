@@ -40,6 +40,17 @@ The first real value.
 - [x] Race-free provenance: loginuid is now read in-kernel (eBPF), not from /proc.
 - [ ] Threshold tuning via a config file.
 
+## M2.5 — Exec sensor + containment safety
+- [x] Second eBPF sensor: `sched_process_exec` — catches the universal effect of
+      RCE (a service spawning a never-before-seen program) as a parent→child
+      pair anomaly. One object, shared ring buffer, both programs attached.
+- [x] Containment guardrails (`containmentSafe`): never freeze an interactive
+      login session, never freeze the control plane (sshd/systemd/…/phaged), and
+      only ever freeze an actual privilege escalation — after a live enforce run
+      froze SSH logins and locked the test box out. See docs/concepts/modes.md.
+- See [threats-and-behavioral-defense](concepts/threats-and-behavioral-defense.md)
+  for the exploit-class → host-effect mapping this sensor set is built against.
+
 ## M3 — Blast-radius containment (auto-jail)
 - [ ] Learn a service's normal syscall/file/network behavior.
 - [ ] Generate and apply a least-privilege profile (seccomp/eBPF LSM).

@@ -8,7 +8,9 @@ HOST="${1:-servertest}"
 DEST="/root/phage"
 
 rsync -az --delete \
-	--exclude '.git' --exclude 'bin' --exclude 'bpf/build' --exclude '.DS_Store' \
+	--exclude '.git' --exclude 'bin' --exclude 'bpf/build' \
+	--exclude 'bpf/include/vmlinux' --exclude '.DS_Store' \
+	--exclude '*.json' --exclude '*.jsonl' \
 	-e "ssh -o BatchMode=yes" ./ "$HOST:$DEST/"
 
 ssh -o BatchMode=yes "$HOST" "cd $DEST && make bpf"

@@ -31,6 +31,9 @@ func sample() []byte {
 	comm := [16]byte{}
 	copy(comm[:], "rootshell")
 	buf.Write(comm[:])
+	pcomm := [16]byte{}
+	copy(pcomm[:], "sh")
+	buf.Write(pcomm[:])
 	return buf.Bytes()
 }
 
@@ -48,6 +51,9 @@ func TestEventDecodesFields(t *testing.T) {
 	}
 	if ev.Comm != "rootshell" {
 		t.Errorf("Comm = %q, want %q", ev.Comm, "rootshell")
+	}
+	if ev.ParentComm != "sh" {
+		t.Errorf("ParentComm = %q, want %q", ev.ParentComm, "sh")
 	}
 	if ev.Kind != kind.CredsChange {
 		t.Errorf("Kind = %q, want %q", ev.Kind, kind.CredsChange)

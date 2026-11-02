@@ -28,7 +28,8 @@ struct phage_event {
 	__u32 loginuid;             /* audit login uid; 0xFFFFFFFF if no login session */
 	__u32 _pad;                 /* keep cap_eff 8-byte aligned; mirrored in Go */
 	__u64 cap_eff;              /* effective capability set */
-	char  comm[PHAGE_COMM_LEN];
+	char  comm[PHAGE_COMM_LEN];  /* this process (new image name after exec) */
+	char  pcomm[PHAGE_COMM_LEN]; /* immediate parent's comm (race-free, from kernel) */
 };
 
 #endif /* PHAGE_EVENTS_BPF_H */
