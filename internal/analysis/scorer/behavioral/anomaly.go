@@ -58,7 +58,15 @@ func (a *Anomaly) Score(v feature.Vector) verdict.Verdict {
 		if s <= 0 {
 			continue
 		}
-		contribution := w * s
+		// Discount surprise from features that have not yet been observed
+		// enough times to trust. This stops a freshly-deployed agent from
+		// raising confident alerts off a thin baseline; mature features
+		// (>= minConfidentSamples) are unaffected.
+		conf := confidence(a.profile.Samples(key))
+		contribution := w * s * conf
+		if contribution <= 0 {
+			continue
+		}
 		score += contribution
 		out.Reasons = append(out.Reasons, verdict.Reason{
 			Feature:      key,
@@ -71,6 +79,18 @@ func (a *Anomaly) Score(v feature.Vector) verdict.Verdict {
 	}
 	out.Score = clamp01(score)
 	return out
+}
+
+// minConfidentSamples is how many observations a feature needs before Phage
+// trusts its surprise fully. Below it, a feature's contribution is scaled down
+// linearly, so "I have barely seen this" never reads as "this is an attack".
+const minConfidentSamples = 15
+
+func confidence(samples uint64) float64 {
+	if samples >= minConfidentSamples {
+		return 1
+	}
+	return float64(samples) / float64(minConfidentSamples)
 }
 
 func (a *Anomaly) weight(key string) float64 {

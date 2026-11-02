@@ -74,6 +74,40 @@ func TestNormalScoresLow(t *testing.T) {
 	}
 }
 
+func TestThinBaselineScoresLowerThanMature(t *testing.T) {
+	attack := feature.Vector{
+		feature.FeatRaiseNoSession:    1,
+		feature.FeatRaisedToRoot:      1,
+		feature.FeatInteractiveOrigin: 0,
+	}
+	thin := New(mustProfile(3))     // barely learned
+	mature := New(mustProfile(100)) // well learned
+
+	ts := thin.Score(attack).Score
+	ms := mature.Score(attack).Score
+	if !(ts < ms) {
+		t.Fatalf("a thin baseline (%.2f) should score lower than a mature one (%.2f)", ts, ms)
+	}
+	if ts == 0 {
+		t.Error("a partially-learned baseline should still register some signal")
+	}
+}
+
+func mustProfile(n int) *baseline.Profile {
+	p := baseline.NewProfile()
+	normal := feature.Vector{
+		feature.FeatRaiseNoSession:    0,
+		feature.FeatRaisedToRoot:      0,
+		feature.FeatInteractiveOrigin: 1,
+	}
+	for i := 0; i < n; i++ {
+		for k, v := range normal {
+			p.Observe(k, v)
+		}
+	}
+	return p
+}
+
 func TestEmptyBaselineIsNeutral(t *testing.T) {
 	// With nothing learned, Surprise is 0 everywhere, so no false positives.
 	a := New(baseline.NewProfile())
