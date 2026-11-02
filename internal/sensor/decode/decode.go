@@ -16,20 +16,25 @@ import (
 // raw mirrors `struct phage_event` in bpf/programs/common/events.bpf.h exactly,
 // including field order and alignment. Keep the two in lockstep.
 type raw struct {
-	ID      uint64
-	TsNs    uint64
-	Kind    uint32
-	PID     uint32
-	PPID    uint32
-	UID     uint32
-	EUID    uint32
-	NewEUID uint32
-	CapEff  uint64
-	Comm    [16]byte
+	ID       uint64
+	TsNs     uint64
+	Kind     uint32
+	PID      uint32
+	PPID     uint32
+	UID      uint32
+	EUID     uint32
+	NewEUID  uint32
+	LoginUID uint32
+	Pad      uint32
+	CapEff   uint64
+	Comm     [16]byte
 }
 
 // Size is the expected sample length in bytes.
-const Size = 64
+const Size = 72
+
+// loginUIDUnset is the kernel's "no login session" sentinel, (uid_t)-1.
+const loginUIDUnset = 0xFFFFFFFF
 
 // Event decodes one raw sample. Samples are little-endian (the kernel writes
 // host byte order; Phage targets x86_64/arm64, both little-endian).
@@ -41,7 +46,7 @@ func Event(b []byte) (model.Event, error) {
 	if err := binary.Read(bytes.NewReader(b), binary.LittleEndian, &r); err != nil {
 		return model.Event{}, fmt.Errorf("decode sample: %w", err)
 	}
-	return model.Event{
+	ev := model.Event{
 		ID:   r.ID,
 		Time: time.Now(), // ts_ns is monotonic-since-boot; wall clock added here
 		Kind: mapKind(r.Kind),
@@ -53,7 +58,16 @@ func Event(b []byte) (model.Event, error) {
 			EUID:         int32(r.NewEUID), // the euid being committed is what matters
 			CapEffective: r.CapEff,
 		},
-	}, nil
+	}
+	// Session provenance comes from the kernel (race-free), not from /proc.
+	if r.LoginUID == loginUIDUnset {
+		ev.Session.LoginUID = -1
+		ev.Session.Interactive = false
+	} else {
+		ev.Session.LoginUID = int32(r.LoginUID)
+		ev.Session.Interactive = true
+	}
+	return ev, nil
 }
 
 func mapKind(k uint32) kind.Kind {

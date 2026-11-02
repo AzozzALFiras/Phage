@@ -9,6 +9,7 @@ import "github.com/AzozzALFiras/Phage/internal/policy/mode"
 type Config struct {
 	Mode        mode.Mode
 	StatePath   string // where the learned baseline is persisted
+	AuditPath   string // append-only action trail; empty disables auditing
 	LogLevel    string
 	LearnWindow string // minimum learning duration before Alert/Enforce is advised
 }
@@ -19,6 +20,7 @@ func Default() Config {
 	return Config{
 		Mode:        mode.Learn,
 		StatePath:   "/var/lib/phage/baseline.json",
+		AuditPath:   "",
 		LogLevel:    "info",
 		LearnWindow: "168h",
 	}

@@ -43,15 +43,21 @@ int BPF_PROG(on_commit_creds, struct cred *new)
 
 	__u64 id = bpf_get_current_pid_tgid();
 	__u64 uid_gid = bpf_get_current_uid_gid();
+	struct task_struct *task = bpf_get_current_task_btf();
 
 	e->id = id;
 	e->ts_ns = bpf_ktime_get_ns();
 	e->kind = PHAGE_EVT_CREDS_CHANGE;
 	e->pid = id >> 32;
-	e->ppid = 0; /* filled by userspace enrichment from /proc or a task map */
+	e->ppid = 0; /* filled by userspace enrichment from /proc */
 	e->uid = (__u32)uid_gid;
-	e->euid = 0; /* current euid; refined in userspace */
+	e->euid = 0; /* current euid; not needed for the raise check */
 	e->new_euid = BPF_CORE_READ(new, euid.val);
+	/* Resolve the session provenance here, in-kernel, so it cannot race a
+	 * short-lived process exiting before userspace reads /proc. An unset
+	 * loginuid (0xFFFFFFFF) means no login session is behind this change. */
+	e->loginuid = BPF_CORE_READ(task, loginuid.val);
+	e->_pad = 0;
 	/* kernel_cap_t became a single u64 `val` in Linux 6.3; older kernels used
 	 * cap[2]. We target modern BTF kernels, so read `val` directly. */
 	e->cap_eff = BPF_CORE_READ(new, cap_effective.val);

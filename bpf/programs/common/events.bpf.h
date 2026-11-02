@@ -25,6 +25,8 @@ struct phage_event {
 	__u32 uid;                  /* current real uid */
 	__u32 euid;                 /* current effective uid */
 	__u32 new_euid;             /* creds_change: the euid being committed */
+	__u32 loginuid;             /* audit login uid; 0xFFFFFFFF if no login session */
+	__u32 _pad;                 /* keep cap_eff 8-byte aligned; mirrored in Go */
 	__u64 cap_eff;              /* effective capability set */
 	char  comm[PHAGE_COMM_LEN];
 };

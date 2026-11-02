@@ -21,7 +21,8 @@ The first real value.
       `store.Repository` seam (embedded KV can drop in later).
 - [x] Learn mode end-to-end; alert mode scoring with explained verdicts and the
       policy engine choosing the response.
-- [ ] Deterministic pipeline tests from recorded fixtures.
+- [x] Deterministic pipeline tests: decode layout contract + scorer behaviour
+      (attack scores high with reason, normal scores low, empty baseline neutral).
 - **Demo — done.** A real HTTP attack from a remote machine exploited a lab web
   app (command injection) to run as `webapp`, then escalated to root via a
   setuid binary. Phage flagged the escalation **CRITICAL (score 0.83)** with the
@@ -30,9 +31,12 @@ The first real value.
   [docs/demo/external-escalation.md](demo/external-escalation.md).
 
 ## M2 — Enforcement (contain)
-- [ ] Reversible containment: cgroup freeze of the offending process tree.
-- [ ] Audit log with the triggering reason.
-- [ ] Threshold tuning and a `phage` CLI to inspect/override.
+- [x] Reversible containment: cgroup-v2 freeze of the offending process tree.
+      Live-verified — the same remote attack, in `enforce` mode, was frozen
+      mid-run (`cgroup.freeze=1`, euid 0 but unable to execute), not killed.
+- [x] Audit log (append-only JSON lines) with the triggering reason per action.
+- [ ] Threshold tuning and a `phage` CLI to inspect/override/thaw.
+- [ ] Race-free provenance: loginuid is now read in-kernel (eBPF), not from /proc.
 
 ## M3 — Blast-radius containment (auto-jail)
 - [ ] Learn a service's normal syscall/file/network behavior.

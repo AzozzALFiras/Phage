@@ -7,7 +7,6 @@ package enrich
 import (
 	"fmt"
 
-	"github.com/AzozzALFiras/Phage/internal/enrich/identity"
 	"github.com/AzozzALFiras/Phage/internal/enrich/process"
 	"github.com/AzozzALFiras/Phage/internal/event/model"
 )
@@ -36,12 +35,7 @@ func (Enricher) Enrich(ev model.Event) model.Event {
 	}
 	ev.Lineage = process.Lineage(ev.PID, maxLineage)
 
-	if uid, ok := identity.LoginUID(ev.PID); ok {
-		ev.Session.LoginUID = uid
-		ev.Session.Interactive = true
-	} else {
-		ev.Session.LoginUID = -1
-		ev.Session.Interactive = false
-	}
+	// Session provenance (loginuid) is already set by the decoder from the
+	// kernel event — race-free — so enrichment leaves it alone.
 	return ev
 }

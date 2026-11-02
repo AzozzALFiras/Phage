@@ -14,11 +14,13 @@ import (
 	"github.com/AzozzALFiras/Phage/internal/analysis/scorer"
 	"github.com/AzozzALFiras/Phage/internal/analysis/scorer/behavioral"
 	"github.com/AzozzALFiras/Phage/internal/analysis/verdict"
+	"github.com/AzozzALFiras/Phage/internal/audit"
 	"github.com/AzozzALFiras/Phage/internal/enrich"
 	"github.com/AzozzALFiras/Phage/internal/event/model"
 	"github.com/AzozzALFiras/Phage/internal/policy/engine"
 	"github.com/AzozzALFiras/Phage/internal/policy/mode"
 	"github.com/AzozzALFiras/Phage/internal/response/action"
+	"github.com/AzozzALFiras/Phage/internal/response/contain"
 	"github.com/AzozzALFiras/Phage/internal/sensor/decode"
 	"github.com/AzozzALFiras/Phage/internal/sensor/loader"
 	"github.com/AzozzALFiras/Phage/internal/store/profile"
@@ -34,6 +36,8 @@ type App struct {
 	extract  feature.Privilege
 	scorer   scorer.Scorer
 	engine   *engine.Engine
+	freezer  *contain.Freezer
+	audit    *audit.Writer
 }
 
 // New builds an App from config, the path to the compiled eBPF object, and the
@@ -48,6 +52,7 @@ func New(cfg config.Config, objPath string, store profile.Repository) *App {
 		extract: feature.Privilege{},
 		scorer:  behavioral.New(p), // bound to p; sees whatever we load into it
 		engine:  engine.New(cfg.Mode),
+		freezer: contain.NewFreezer(),
 	}
 }
 
@@ -59,6 +64,13 @@ func (a *App) Run(ctx context.Context) error {
 	if err := a.store.Load(a.profile); err != nil {
 		return err
 	}
+
+	aw, err := audit.Open(a.cfg.AuditPath)
+	if err != nil {
+		return err
+	}
+	a.audit = aw
+	defer a.audit.Close()
 
 	sensor, err := loader.Load(a.objPath)
 	if err != nil {
@@ -103,7 +115,7 @@ func (a *App) Run(ctx context.Context) error {
 		v := a.scorer.Score(vec)
 		act := a.engine.Decide(v, ev.PID)
 		if act.Type != action.None {
-			a.report(ev, v, act)
+			a.respond(ev, v, act)
 		}
 	}
 }
@@ -121,16 +133,30 @@ func (a *App) onShutdown() error {
 	return nil
 }
 
-// report logs an alert with its score, the action taken, and the explanation.
-func (a *App) report(ev model.Event, v verdict.Verdict, act action.Action) {
+// respond logs the verdict, records it to the audit trail, and carries out the
+// action. Containment is attempted only in enforce mode (where the engine emits
+// Freeze); alert mode only ever yields Notify.
+func (a *App) respond(ev model.Event, v verdict.Verdict, act action.Action) {
 	parent := ""
 	if len(ev.Lineage) > 0 {
 		parent = ev.Lineage[0].Comm
 	}
+	reason := reasons(v)
 	log.Printf("%s score=%.2f action=%s pid=%d comm=%q parent=%q uid=%d->euid=%d interactive=%t :: %s",
-		strings.ToUpper(string(labelFor(v.Score))), v.Score, act.Type,
-		ev.PID, ev.Comm, parent, ev.Creds.UID, ev.Creds.EUID, ev.Session.Interactive,
-		reasons(v))
+		strings.ToUpper(labelFor(v.Score)), v.Score, act.Type,
+		ev.PID, ev.Comm, parent, ev.Creds.UID, ev.Creds.EUID, ev.Session.Interactive, reason)
+
+	a.audit.Record(audit.Entry{
+		Action: string(act.Type), Score: v.Score, PID: ev.PID, Comm: ev.Comm, Reason: reason,
+	})
+
+	if act.Type == action.Freeze {
+		if err := a.freezer.Freeze(ev.PID); err != nil {
+			log.Printf("CONTAIN pid=%d failed: %v", ev.PID, err)
+			return
+		}
+		log.Printf("CONTAIN pid=%d comm=%q FROZEN (process tree quarantined, reversible)", ev.PID, ev.Comm)
+	}
 }
 
 // labelFor is a coarse display bucket; the policy engine, not this, decides

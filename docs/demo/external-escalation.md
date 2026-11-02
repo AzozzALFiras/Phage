@@ -52,6 +52,24 @@ with no session) also drew lower-scored notices — a bonus, not the target.
 - **Explainable.** The verdict reads in plain language, which is the
   precondition for ever letting it act (enforce mode, M2).
 
+## Enforcement: it doesn't just alert, it contains
+
+Re-run in `enforce` mode, the same escalation is **frozen in place** the instant
+it is detected:
+
+```
+CRITICAL score=0.83 action=freeze pid=6518 comm="rootshell" uid=999->euid=0 ::
+    an unprivileged process raised itself to root;
+    raised to root with no login session behind it (never seen on this host)
+CONTAIN pid=6518 comm="rootshell" FROZEN (process tree quarantined, reversible)
+```
+
+Verified on the box: the process reached `euid 0` (`/proc/<pid>/status` →
+`Uid: 999 0 0 0`) but sits in a dedicated cgroup with `cgroup.freeze=1` — it
+cannot run. Containment is a **freeze, not a kill**, so a false positive is
+released with `cgroup.freeze=0` rather than leaving a dead process. Every action
+is written to an append-only audit trail with its reason.
+
 ## Honest caveats
 - On this quiet host the baseline also learned "activity is interactive" because
   learn-phase traffic came through SSH; on a busy server the robust
