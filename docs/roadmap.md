@@ -1,0 +1,39 @@
+# Roadmap
+
+Direction, not dates. Each milestone ships something usable and demonstrable.
+
+## M0 — Scaffolding ✅
+Architecture, pipeline seams, docs, buildable Go skeleton. (You are here.)
+
+## M1 — Privilege-escalation detection (learn + alert)
+The first real value.
+- [ ] `creds.bpf.c` hooking `commit_creds`, streaming events via ring buffer.
+- [ ] Sensor loader (`cilium/ebpf`) + ring-buffer reader + decode.
+- [ ] Enrichment: process lineage, session/TTY provenance.
+- [ ] Baseline persistence (embedded KV).
+- [ ] Learn mode end-to-end; alert mode with explained verdicts.
+- [ ] Deterministic pipeline tests from recorded fixtures.
+- **Demo:** on our test server, a simulated web-to-root escalation surfaces as an
+  explained alert while normal `sudo` over SSH stays silent.
+
+## M2 — Enforcement (contain)
+- [ ] Reversible containment: cgroup freeze of the offending process tree.
+- [ ] Audit log with the triggering reason.
+- [ ] Threshold tuning and a `phage` CLI to inspect/override.
+
+## M3 — Blast-radius containment (auto-jail)
+- [ ] Learn a service's normal syscall/file/network behavior.
+- [ ] Generate and apply a least-privilege profile (seccomp/eBPF LSM).
+- [ ] "Learn → enforce" per service, same ladder philosophy.
+
+## M4 — Self-healing
+- [ ] Automated response playbooks (isolate network, restart clean, roll back).
+- [ ] Recovery to a known-good state.
+
+## Model evolution (crosscutting)
+Frequency surprise → co-occurrence → time decay → sequence/graph models, all
+behind the fixed `scorer.Scorer` seam. See
+[design/analysis-engine](design/analysis-engine.md).
+
+## Later
+Tamper-resistance, signed eBPF, multi-host aggregation, a fleet view.

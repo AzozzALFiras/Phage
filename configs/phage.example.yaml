@@ -1,0 +1,22 @@
+# Phage daemon configuration (example).
+# Copy to /etc/phage/phage.yaml and adjust. Comments explain the trade-offs.
+
+# Operating posture. The ladder is learn -> alert -> enforce.
+# NEVER start a fresh install in enforce: the baseline is empty and everything
+# looks anomalous. See docs/concepts/modes.md.
+mode: learn
+
+# Where the learned baseline is persisted. Survives restarts.
+state_path: /var/lib/phage/baseline.db
+
+# Minimum time to stay in learn mode before alert/enforce is advisable.
+# A week captures weekly cron and maintenance patterns.
+learn_window: 168h
+
+log_level: info
+
+# Response thresholds, 0.0 (normal) .. 1.0 (certainly anomalous).
+# Tune aggressiveness here instead of in code.
+thresholds:
+  notify: 0.4   # at/above this score, raise an alert
+  contain: 0.8  # at/above this score, contain (enforce mode only)
