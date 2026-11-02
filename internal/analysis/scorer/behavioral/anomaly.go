@@ -36,6 +36,7 @@ func New(p *baseline.Profile) *Anomaly {
 			feature.FeatHasTTY:            0.2,
 			// exec features
 			feature.FeatExecPair:        1.0, // a never-seen parent->child execution: the RCE effect
+			feature.FeatExecFileless:    1.5, // ran from an anonymous in-memory image: fileless malware (near-zero false positive, so it weighs heaviest)
 			feature.FeatExecInteractive: 0.4,
 			feature.FeatExecChild:       0.3,
 			// network (egress) features
@@ -113,6 +114,10 @@ func (a *Anomaly) weight(key string) float64 {
 // explain renders a human reason. It describes the deviation, never a verdict.
 func explain(key string, val, surprise float64) string {
 	switch key {
+	case feature.FeatExecFileless:
+		if val == 1 {
+			return "executed from an anonymous in-memory file (fileless) — no program on disk"
+		}
 	case feature.FeatExecPair:
 		return "a program was spawned in a parent->child combination never seen on this host"
 	case feature.FeatExecInteractive:

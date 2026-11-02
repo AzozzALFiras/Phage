@@ -106,6 +106,7 @@ type Event struct {
 	PPID       int32
 	Comm       string
 	ParentComm string // immediate parent's comm, captured in-kernel (race-free)
+	Fileless   bool   // exec from an anonymous in-memory image (memfd / unlinked binary); set on Exec events
 	Exe        string
 	Args       []string
 	CWD        string

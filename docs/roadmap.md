@@ -84,6 +84,18 @@ The first real value.
 - See [file-persistence-detection](concepts/file-persistence-detection.md) for
   the design and gaps.
 
+## Advanced-evasion coverage (crosscutting)
+Techniques that defeat file-based tooling, caught behaviourally.
+- [x] **Fileless / in-memory execution.** The exec sensor flags a program run
+      from an anonymous `memfd` or an unlinked binary — the executed image has no
+      on-disk link (`i_nlink == 0`). Near-zero false positive, so it weighs
+      heaviest; holds even when the memfd is named after a trusted program.
+      Live-verified: a payload run from memory flagged CRITICAL (0.87) while
+      on-disk execs stayed silent. See [demo](demo/fileless-execution.md).
+- [ ] Enabling syscalls from service accounts (`unshare` userns, `io_uring_setup`,
+      `bpf`, `userfaultfd`) — the setup an exploit does *before* it escalates
+      (signal #5).
+
 ## Scoring: novelty, not rarity (crosscutting)
 - [x] `baseline.Surprise` now measures whether a value is *established* on the
       host, not its probability share of all events. The old `1 - count/total`

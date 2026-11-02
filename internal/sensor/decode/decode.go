@@ -26,7 +26,7 @@ type raw struct {
 	EUID     uint32
 	NewEUID  uint32
 	LoginUID uint32
-	Pad      uint32
+	Flags    uint32 // exec: bit 0 = fileless (image has no on-disk link)
 	CapEff   uint64
 	DAddr    [16]byte // destination IP, network order (connect events)
 	DPort    uint16   // destination port, host order
@@ -42,6 +42,10 @@ const Size = 272
 
 // loginUIDUnset is the kernel's "no login session" sentinel, (uid_t)-1.
 const loginUIDUnset = 0xFFFFFFFF
+
+// flagFileless is bit 0 of the exec event flags: the executed image had no
+// on-disk link (i_nlink == 0), i.e. it ran from an anonymous in-memory file.
+const flagFileless = 1 << 0
 
 // Address families, as the kernel reports them (UAPI values).
 const (
@@ -67,6 +71,7 @@ func Event(b []byte) (model.Event, error) {
 		PPID:       int32(r.PPID),
 		Comm:       cString(r.Comm[:]),
 		ParentComm: cString(r.PComm[:]),
+		Fileless:   r.Flags&flagFileless != 0,
 		Creds: model.Credentials{
 			UID:          int32(r.UID),
 			EUID:         int32(r.NewEUID), // the euid being committed is what matters

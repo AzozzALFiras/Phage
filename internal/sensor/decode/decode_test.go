@@ -16,6 +16,7 @@ type record struct {
 	pid, ppid     uint32
 	uid, newEUID  uint32
 	loginUID      uint32
+	flags         uint32
 	capEff        uint64
 	daddr         [16]byte
 	dport, family uint16
@@ -35,7 +36,7 @@ func (rec record) bytes() []byte {
 		uint32(0),    // euid (unused by decode)
 		rec.newEUID,  // new_euid
 		rec.loginUID, // loginuid
-		uint32(0),    // _pad
+		rec.flags,    // flags
 		rec.capEff,   // cap_eff
 		rec.daddr,    // daddr[16]
 		rec.dport,    // dport
@@ -165,6 +166,32 @@ func TestFileWriteDecodesPathAndCategory(t *testing.T) {
 	}
 	if ev.Session.Interactive {
 		t.Error("Interactive = true, want false (no login session behind a webshell drop)")
+	}
+}
+
+func TestExecDecodesFilelessFlag(t *testing.T) {
+	// An exec whose image has no on-disk link: fileless / memfd execution. The
+	// attacker named the memfd "nginx" to blend in — the flag catches it anyway.
+	rec := record{
+		kind: 1, pid: 7000, ppid: 6999, loginUID: 0xFFFFFFFF,
+		flags: 1, comm: "nginx", pcomm: "php-fpm",
+	}
+	ev, err := Event(rec.bytes())
+	if err != nil {
+		t.Fatalf("Event: %v", err)
+	}
+	if ev.Kind != kind.Exec {
+		t.Fatalf("Kind = %q, want %q", ev.Kind, kind.Exec)
+	}
+	if !ev.Fileless {
+		t.Error("Fileless = false, want true (flags bit 0 set)")
+	}
+
+	// A normal exec (flags 0) must not be flagged fileless.
+	normal := record{kind: 1, pid: 7001, loginUID: 0xFFFFFFFF, comm: "nginx", pcomm: "systemd"}
+	ev2, _ := Event(normal.bytes())
+	if ev2.Fileless {
+		t.Error("Fileless = true for a normal exec, want false")
 	}
 }
 

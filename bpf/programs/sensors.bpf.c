@@ -60,7 +60,7 @@ static __always_inline void fill_common(struct phage_event *e,
 	e->new_euid = 0;
 	e->loginuid = BPF_CORE_READ(task, loginuid.val);
 	e->cap_eff = 0;
-	e->_pad = 0;
+	e->flags = 0;
 	/* network fields default to zero; only on_tcp_connect fills them. */
 	__builtin_memset(e->daddr, 0, sizeof(e->daddr));
 	e->dport = 0;
@@ -103,6 +103,13 @@ int BPF_PROG(on_sched_exec, struct task_struct *p, pid_t old_pid, struct linux_b
 	fill_common(e, task, PHAGE_EVT_EXEC);
 	/* mirror the current euid so the raise check still applies to setuid execs */
 	e->new_euid = BPF_CORE_READ(task, cred, euid.val);
+	/* Fileless execution: an executed image with no directory entry
+	 * (i_nlink == 0) — a memfd or a deleted-then-run binary. Legitimate programs
+	 * run from linked files, so nlink 0 is a sharp signal of in-memory execution
+	 * that disk-based scanners miss, and it holds even if the attacker names the
+	 * memfd after a trusted program. */
+	if (BPF_CORE_READ(bprm, file, f_inode, __i_nlink) == 0)
+		e->flags |= 1;
 	bpf_ringbuf_submit(e, 0);
 	return 0;
 }
