@@ -53,7 +53,8 @@ const (
 	FeatExecPair        = "exec.parent_child_id" // stable id of the parent->child pair
 	FeatExecChild       = "exec.child_id"        // stable id of the executed program
 	FeatExecInteractive = "exec.interactive_origin"
-	FeatExecFileless    = "exec.fileless" // 1 if the image ran from an anonymous in-memory file
+	FeatExecFileless    = "exec.fileless"   // 1 if the image ran from an anonymous in-memory file
+	FeatExecLdPreload   = "exec.ld_preload" // 1 if the env carried a dynamic-linker hijack var
 )
 
 // Exec extracts features for a process-execution event. The dominant signal is
@@ -69,6 +70,7 @@ func (Exec) Extract(ev model.Event) Vector {
 		FeatExecChild:       commID(ev.Comm),
 		FeatExecInteractive: b2f(ev.Session.Interactive),
 		FeatExecFileless:    b2f(ev.Fileless),
+		FeatExecLdPreload:   b2f(ev.LdPreload),
 	}
 }
 

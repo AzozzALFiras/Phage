@@ -63,7 +63,7 @@ baseline** — never a hardcoded rule:
 | Signal | Catches | Status |
 |---|---|---|
 | A process reaches **root with no login session** behind it | Linux/kernel privesc, SQLi/RCE → root | ✅ |
-| A service spawns a **never-before-seen program** (parent→child), incl. **fileless** in-memory execution | PHP/Node RCE, command injection, webshells, reverse shells, memfd malware | ✅ |
+| A service spawns a **never-before-seen program** (parent→child), incl. **fileless** in-memory execution and **LD_PRELOAD** hijacks | PHP/Node RCE, command injection, webshells, reverse shells, memfd malware, linker injection | ✅ |
 | **Outbound connection from a process that never egresses** | reverse shells, C2, exfil | ✅ |
 | **Writes to persistence/credential files** (web-root `.php`, `authorized_keys`, cron) | webshell drop, backdoored keys, persistence | ✅ |
 | **High-risk kernel-enabling ops** by a process with no history of them (userns, eBPF load, io_uring, userfaultfd) | kernel-exploit setup, container escape, eBPF rootkits | ✅ |

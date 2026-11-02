@@ -88,6 +88,7 @@ intentionally not.
 |---|--------|-----------------|
 | 1 | A long-lived service spawns a never-seen program (shell/utility) — parent→child pair anomaly | ✅ exec sensor (`sched_process_exec`) |
 | 1b | **Fileless / in-memory execution** — a program run from an anonymous `memfd` or an unlinked binary (`i_nlink == 0`), invisible to disk scanners | ✅ exec sensor (`FeatExecFileless`) — live-verified. See [demo](../demo/fileless-execution.md) |
+| 1c | **Dynamic-linker hijack** — a program launched with `LD_PRELOAD` / `LD_AUDIT` / `GLIBC_TUNABLES` in its environment | ✅ exec sensor (`FeatExecLdPreload`, in-kernel env scan) — live-verified. See [demo](../demo/dynamic-linker-hijack.md) |
 | 2 | An unprivileged process reaches root with **no login session** behind it | ✅ privilege sensor (`commit_creds`) + provenance |
 | 3 | Outbound connection from a process that normally never egresses | ✅ egress sensor (`tcp_connect`) — live-verified. See [egress-detection](egress-detection.md) and the [demo](../demo/egress-detection.md) |
 | 4 | Writes to persistence/credential artifacts (`authorized_keys`, `/etc/cron*`, web-root `*.php`, `ld.so.preload`) | ✅ file sensor (`security_file_open` + `bpf_d_path`) — live-verified. See [file-persistence-detection](file-persistence-detection.md) and the [demo](../demo/file-persistence.md) |

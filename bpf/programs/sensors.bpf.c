@@ -47,6 +47,69 @@ struct {
 	__uint(max_entries, 1 << 20); /* 1 MiB */
 } phage_events SEC(".maps");
 
+/* Per-CPU scratch for inspecting a process's environment at exec: the env region
+ * is larger than the 512-byte eBPF stack, so it lives in a map. We scan a bounded
+ * window from its start; a hijack var past the window is a documented gap. */
+#define ENV_SCAN 512
+struct env_buf {
+	char data[ENV_SCAN];
+};
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, __u32);
+	__type(value, struct env_buf);
+} env_scratch SEC(".maps");
+
+/* env_has_ld_hijack reports whether the new process's environment carries a
+ * dynamic-linker hijack variable — LD_PRELOAD, LD_AUDIT, or GLIBC_TUNABLES —
+ * used to force a chosen .so (or tunable) into a legitimate program. It scans a
+ * bounded window of the environment; env vars are NUL-separated, so a marker is
+ * matched at the window start or right after a NUL. */
+static __always_inline int env_has_ld_hijack(struct task_struct *task)
+{
+	__u64 start = BPF_CORE_READ(task, mm, env_start);
+	__u64 end = BPF_CORE_READ(task, mm, env_end);
+	if (!start || end <= start)
+		return 0;
+
+	__u64 span = end - start;
+	__u32 n = span > ENV_SCAN ? ENV_SCAN : (__u32)span;
+	if (n == 0)
+		return 0;
+
+	__u32 zero = 0;
+	struct env_buf *b = bpf_map_lookup_elem(&env_scratch, &zero);
+	if (!b)
+		return 0;
+	/* Read only the env span so the probe never faults past env_end, and scan
+	 * only those bytes (break at n) so stale buffer tail is never matched. */
+	if (bpf_probe_read_user(b->data, n, (void *)start) != 0)
+		return 0;
+
+	for (int i = 0; i < ENV_SCAN - 15; i++) {
+		if (i >= (int)n)
+			break;
+		if (i != 0 && b->data[i - 1] != 0)
+			continue;
+		char c0 = b->data[i];
+		if (c0 == 'L' && b->data[i + 1] == 'D' && b->data[i + 2] == '_') {
+			if (b->data[i + 3] == 'P' && b->data[i + 4] == 'R' && b->data[i + 5] == 'E' &&
+			    b->data[i + 6] == 'L' && b->data[i + 7] == 'O' && b->data[i + 8] == 'A' &&
+			    b->data[i + 9] == 'D' && b->data[i + 10] == '=')
+				return 1;
+			if (b->data[i + 3] == 'A' && b->data[i + 4] == 'U' && b->data[i + 5] == 'D' &&
+			    b->data[i + 6] == 'I' && b->data[i + 7] == 'T' && b->data[i + 8] == '=')
+				return 1;
+		}
+		if (c0 == 'G' && b->data[i + 1] == 'L' && b->data[i + 2] == 'I' && b->data[i + 3] == 'B' &&
+		    b->data[i + 4] == 'C' && b->data[i + 5] == '_' && b->data[i + 6] == 'T' &&
+		    b->data[i + 7] == 'U' && b->data[i + 8] == 'N')
+			return 1;
+	}
+	return 0;
+}
+
 /* fill_common captures the context every sensor shares. loginuid and the parent
  * comm are read here, in-kernel, so they cannot race a short-lived process. */
 static __always_inline void fill_common(struct phage_event *e,
@@ -114,6 +177,10 @@ int BPF_PROG(on_sched_exec, struct task_struct *p, pid_t old_pid, struct linux_b
 	 * memfd after a trusted program. */
 	if (BPF_CORE_READ(bprm, file, f_inode, __i_nlink) == 0)
 		e->flags |= 1;
+	/* Dynamic-linker hijack: launched with LD_PRELOAD / LD_AUDIT / GLIBC_TUNABLES
+	 * in its environment — a chosen .so or tunable forced into the program. */
+	if (env_has_ld_hijack(task))
+		e->flags |= 2;
 	bpf_ringbuf_submit(e, 0);
 	return 0;
 }

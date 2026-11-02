@@ -107,6 +107,7 @@ type Event struct {
 	Comm       string
 	ParentComm string // immediate parent's comm, captured in-kernel (race-free)
 	Fileless   bool   // exec from an anonymous in-memory image (memfd / unlinked binary); set on Exec events
+	LdPreload  bool   // exec carried a dynamic-linker hijack var (LD_PRELOAD/LD_AUDIT/GLIBC_TUNABLES); set on Exec events
 	EnableOp   string // high-risk kernel-enabling op name (userns/bpf_load/io_uring/userfaultfd); set on Enable events
 	Exe        string
 	Args       []string

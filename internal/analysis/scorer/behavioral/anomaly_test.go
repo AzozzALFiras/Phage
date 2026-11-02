@@ -108,6 +108,40 @@ func mustProfile(n int) *baseline.Profile {
 	return p
 }
 
+// An override feature (fileless, ld_preload) must floor the score even when the
+// attacker disguises everything else as a known program/parent, and must not
+// inflate a normal exec where the flag is absent.
+func TestOverrideFeatureFloorsScore(t *testing.T) {
+	p := baseline.NewProfile()
+	known := feature.Vector{
+		feature.FeatExecPair:        222,
+		feature.FeatExecChild:       333,
+		feature.FeatExecInteractive: 1,
+		feature.FeatExecFileless:    0,
+		feature.FeatExecLdPreload:   0,
+	}
+	for i := 0; i < 100; i++ {
+		for k, v := range known {
+			p.Observe(k, v)
+		}
+	}
+	a := New(p)
+
+	// Evasive: identical known pair/child/interactive, but fileless is novel.
+	evasive := feature.Vector{
+		feature.FeatExecPair: 222, feature.FeatExecChild: 333, feature.FeatExecInteractive: 1,
+		feature.FeatExecFileless: 1, feature.FeatExecLdPreload: 0,
+	}
+	if s := a.Score(evasive).Score; s < 0.9 {
+		t.Fatalf("fileless with a known pair should floor high, got %.2f", s)
+	}
+
+	// A fully normal exec (flags absent) stays low — no dilution, no inflation.
+	if s := a.Score(known).Score; s > 0.2 {
+		t.Fatalf("normal exec should score low, got %.2f", s)
+	}
+}
+
 func TestEmptyBaselineIsNeutral(t *testing.T) {
 	// With nothing learned, Surprise is 0 everywhere, so no false positives.
 	a := New(baseline.NewProfile())

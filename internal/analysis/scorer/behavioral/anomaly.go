@@ -34,9 +34,10 @@ func New(p *baseline.Profile) *Anomaly {
 			feature.FeatParentComm:        0.4, // an unusual parent for a root transition
 			feature.FeatGainedRoot:        0.2,
 			feature.FeatHasTTY:            0.2,
-			// exec features
+			// exec features. Fileless and ld_preload are override features (see
+			// overrideFeatures): intrinsically anomalous when novel, so they floor
+			// the score rather than being averaged in — they are not listed here.
 			feature.FeatExecPair:        1.0, // a never-seen parent->child execution: the RCE effect
-			feature.FeatExecFileless:    1.5, // ran from an anonymous in-memory image: fileless malware (near-zero false positive, so it weighs heaviest)
 			feature.FeatExecInteractive: 0.4,
 			feature.FeatExecChild:       0.3,
 			// network (egress) features
@@ -57,27 +58,55 @@ func New(p *baseline.Profile) *Anomaly {
 	}
 }
 
+// overrideFeatures are binary "red flags" whose mere presence (when novel for
+// this host) indicates malice on its own — fileless execution, a dynamic-linker
+// hijack. They are scored as a floor on the verdict rather than averaged with
+// the other features, so a single such flag is not diluted by many normal
+// features, and it is caught even when the attacker disguises everything else
+// (a known-looking program and parent). It stays behavioural: a flag the host
+// sets legitimately is learned (surprise 0) and floors nothing.
+var overrideFeatures = map[string]bool{
+	feature.FeatExecFileless:  true,
+	feature.FeatExecLdPreload: true,
+}
+
 // Score implements scorer.Scorer. The score is the weighted, baseline-relative
-// surprise of the event's features; each surprising feature records a reason so
-// the verdict can always explain itself.
+// surprise of the event's features (plus any override-feature floor); each
+// surprising feature records a reason so the verdict can always explain itself.
 func (a *Anomaly) Score(v feature.Vector) verdict.Verdict {
 	out := verdict.Verdict{}
 	if a.profile == nil {
 		return out
 	}
-	var score, weightSum float64
+	var score, weightSum, floor float64
 	for key, val := range v {
-		w := a.weight(key)
 		s := a.profile.Surprise(key, val)
+		// Discount surprise from features not yet observed enough times to trust,
+		// so a freshly-deployed agent never raises confident alerts off a thin
+		// baseline; mature features (>= minConfidentSamples) are unaffected.
+		conf := confidence(a.profile.Samples(key))
+
+		if overrideFeatures[key] {
+			// Floor the score by the flag's own learned surprise; keep it out of
+			// the averaging denominator so it neither dilutes nor is diluted.
+			if s <= 0 {
+				continue
+			}
+			f := s * conf
+			if f > floor {
+				floor = f
+			}
+			out.Reasons = append(out.Reasons, verdict.Reason{
+				Feature: key, Contribution: f, Detail: explain(key, val, s),
+			})
+			continue
+		}
+
+		w := a.weight(key)
 		weightSum += w
 		if s <= 0 {
 			continue
 		}
-		// Discount surprise from features that have not yet been observed
-		// enough times to trust. This stops a freshly-deployed agent from
-		// raising confident alerts off a thin baseline; mature features
-		// (>= minConfidentSamples) are unaffected.
-		conf := confidence(a.profile.Samples(key))
 		contribution := w * s * conf
 		if contribution <= 0 {
 			continue
@@ -91,6 +120,9 @@ func (a *Anomaly) Score(v feature.Vector) verdict.Verdict {
 	}
 	if weightSum > 0 {
 		score /= weightSum
+	}
+	if floor > score {
+		score = floor
 	}
 	out.Score = clamp01(score)
 	return out
@@ -121,6 +153,10 @@ func explain(key string, val, surprise float64) string {
 	case feature.FeatExecFileless:
 		if val == 1 {
 			return "executed from an anonymous in-memory file (fileless) — no program on disk"
+		}
+	case feature.FeatExecLdPreload:
+		if val == 1 {
+			return "launched with a dynamic-linker hijack in its environment (LD_PRELOAD / LD_AUDIT / GLIBC_TUNABLES)"
 		}
 	case feature.FeatExecPair:
 		return "a program was spawned in a parent->child combination never seen on this host"

@@ -98,6 +98,13 @@ Techniques that defeat file-based tooling, caught behaviourally.
       it has no history of. Live-verified: a session-less service creating a user
       namespace flagged while a known admin tool doing the same stayed silent.
       See [demo](demo/kernel-enabling-ops.md).
+- [x] **Dynamic-linker hijack.** The exec sensor scans a bounded window of the
+      new process's environment in-kernel and flags `LD_PRELOAD` / `LD_AUDIT` /
+      `GLIBC_TUNABLES`. Scored as a red-flag override (floors the verdict when
+      novel, so it is undiluted and caught even when the program/parent look
+      normal). Live-verified: a service launched with `LD_PRELOAD` flagged
+      CRITICAL while the same program without it stayed silent. See
+      [demo](demo/dynamic-linker-hijack.md).
 
 ## Scoring: novelty, not rarity (crosscutting)
 - [x] `baseline.Surprise` now measures whether a value is *established* on the

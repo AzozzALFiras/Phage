@@ -195,6 +195,21 @@ func TestExecDecodesFilelessFlag(t *testing.T) {
 	}
 }
 
+func TestExecDecodesLdPreloadFlag(t *testing.T) {
+	// flags bit 1 = a dynamic-linker hijack var in the environment.
+	rec := record{kind: 1, pid: 7100, loginUID: 0xFFFFFFFF, flags: 2, comm: "sudo", pcomm: "bash"}
+	ev, err := Event(rec.bytes())
+	if err != nil {
+		t.Fatalf("Event: %v", err)
+	}
+	if !ev.LdPreload {
+		t.Error("LdPreload = false, want true (flags bit 1 set)")
+	}
+	if ev.Fileless {
+		t.Error("Fileless = true, want false (only bit 1 set)")
+	}
+}
+
 func TestEnableDecodesOp(t *testing.T) {
 	// A service-spawned shell creates an unprivileged user namespace — the setup
 	// for a kernel exploit. flags carries the op code (1 = userns).

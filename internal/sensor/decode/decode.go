@@ -43,9 +43,11 @@ const Size = 272
 // loginUIDUnset is the kernel's "no login session" sentinel, (uid_t)-1.
 const loginUIDUnset = 0xFFFFFFFF
 
-// flagFileless is bit 0 of the exec event flags: the executed image had no
-// on-disk link (i_nlink == 0), i.e. it ran from an anonymous in-memory file.
-const flagFileless = 1 << 0
+// Exec event flag bits (the `flags` field on exec events).
+const (
+	flagFileless  = 1 << 0 // image had no on-disk link (memfd / unlinked): fileless
+	flagLdPreload = 1 << 1 // env carries LD_PRELOAD / LD_AUDIT / GLIBC_TUNABLES
+)
 
 // Address families, as the kernel reports them (UAPI values).
 const (
@@ -72,6 +74,7 @@ func Event(b []byte) (model.Event, error) {
 		Comm:       cString(r.Comm[:]),
 		ParentComm: cString(r.PComm[:]),
 		Fileless:   r.Flags&flagFileless != 0,
+		LdPreload:  r.Flags&flagLdPreload != 0,
 		Creds: model.Credentials{
 			UID:          int32(r.UID),
 			EUID:         int32(r.NewEUID), // the euid being committed is what matters
