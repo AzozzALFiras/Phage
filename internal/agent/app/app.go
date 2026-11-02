@@ -7,6 +7,8 @@ import (
 	"context"
 	"log"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/AzozzALFiras/Phage/internal/agent/config"
 	"github.com/AzozzALFiras/Phage/internal/analysis/baseline"
@@ -15,6 +17,7 @@ import (
 	"github.com/AzozzALFiras/Phage/internal/analysis/scorer/behavioral"
 	"github.com/AzozzALFiras/Phage/internal/analysis/verdict"
 	"github.com/AzozzALFiras/Phage/internal/audit"
+	"github.com/AzozzALFiras/Phage/internal/control"
 	"github.com/AzozzALFiras/Phage/internal/enrich"
 	"github.com/AzozzALFiras/Phage/internal/event/model"
 	"github.com/AzozzALFiras/Phage/internal/policy/engine"
@@ -38,6 +41,15 @@ type App struct {
 	engine   *engine.Engine
 	freezer  *contain.Freezer
 	audit    *audit.Writer
+
+	started time.Time
+	// counters and the recent-alerts ring back the control interface.
+	mu          sync.Mutex
+	nEvents     uint64
+	nAlerts     uint64
+	nContained  uint64
+	recent      []control.Alert
+	recentLimit int
 }
 
 // New builds an App from config, the path to the compiled eBPF object, and the
@@ -45,14 +57,16 @@ type App struct {
 func New(cfg config.Config, objPath string, store profile.Repository) *App {
 	p := baseline.NewProfile()
 	return &App{
-		cfg:     cfg,
-		objPath: objPath,
-		store:   store,
-		profile: p,
-		extract: feature.Privilege{},
-		scorer:  behavioral.New(p), // bound to p; sees whatever we load into it
-		engine:  engine.New(cfg.Mode),
-		freezer: contain.NewFreezer(),
+		cfg:         cfg,
+		objPath:     objPath,
+		store:       store,
+		profile:     p,
+		extract:     feature.Privilege{},
+		scorer:      behavioral.New(p), // bound to p; sees whatever we load into it
+		engine:      engine.New(cfg.Mode),
+		freezer:     contain.NewFreezer(),
+		started:     time.Now(),
+		recentLimit: 100,
 	}
 }
 
@@ -86,6 +100,13 @@ func (a *App) Run(ctx context.Context) error {
 
 	log.Printf("sensor attached (commit_creds); mode=%s obj=%s", a.cfg.Mode, a.objPath)
 
+	if srv, err := control.Serve(ctx, a.cfg.ControlPath, a); err != nil {
+		log.Printf("control socket disabled: %v", err)
+	} else if srv != nil {
+		defer srv.Close()
+		log.Printf("control socket: %s", a.cfg.ControlPath)
+	}
+
 	for {
 		raw, err := sensor.Read()
 		if err != nil {
@@ -102,6 +123,10 @@ func (a *App) Run(ctx context.Context) error {
 		}
 		ev = a.enricher.Enrich(ev)
 		vec := a.extract.Extract(ev)
+
+		a.mu.Lock()
+		a.nEvents++
+		a.mu.Unlock()
 
 		if a.cfg.Mode == mode.Learn {
 			for k, v := range vec {
@@ -150,13 +175,59 @@ func (a *App) respond(ev model.Event, v verdict.Verdict, act action.Action) {
 		Action: string(act.Type), Score: v.Score, PID: ev.PID, Comm: ev.Comm, Reason: reason,
 	})
 
+	contained := false
 	if act.Type == action.Freeze {
 		if err := a.freezer.Freeze(ev.PID); err != nil {
 			log.Printf("CONTAIN pid=%d failed: %v", ev.PID, err)
-			return
+		} else {
+			contained = true
+			log.Printf("CONTAIN pid=%d comm=%q FROZEN (process tree quarantined, reversible)", ev.PID, ev.Comm)
 		}
-		log.Printf("CONTAIN pid=%d comm=%q FROZEN (process tree quarantined, reversible)", ev.PID, ev.Comm)
 	}
+
+	a.mu.Lock()
+	a.nAlerts++
+	if contained {
+		a.nContained++
+	}
+	a.recent = append(a.recent, control.Alert{
+		Time: time.Now().UTC().Format(time.RFC3339), Score: v.Score,
+		Action: string(act.Type), PID: ev.PID, Comm: ev.Comm, Reason: reason,
+	})
+	if len(a.recent) > a.recentLimit {
+		a.recent = a.recent[len(a.recent)-a.recentLimit:]
+	}
+	a.mu.Unlock()
+}
+
+// Status implements control.Handler.
+func (a *App) Status() control.Status {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return control.Status{
+		Mode:      a.cfg.Mode.String(),
+		Uptime:    time.Since(a.started).Truncate(time.Second).String(),
+		Events:    a.nEvents,
+		Alerts:    a.nAlerts,
+		Contained: a.nContained,
+	}
+}
+
+// RecentAlerts implements control.Handler: the last n surfaced verdicts.
+func (a *App) RecentAlerts(n int) []control.Alert {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if n > len(a.recent) {
+		n = len(a.recent)
+	}
+	out := make([]control.Alert, n)
+	copy(out, a.recent[len(a.recent)-n:])
+	return out
+}
+
+// Thaw implements control.Handler: release a quarantined process (false positive).
+func (a *App) Thaw(pid int32) error {
+	return a.freezer.Thaw(pid)
 }
 
 // labelFor is a coarse display bucket; the policy engine, not this, decides

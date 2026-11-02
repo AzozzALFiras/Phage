@@ -10,6 +10,7 @@ type Config struct {
 	Mode        mode.Mode
 	StatePath   string // where the learned baseline is persisted
 	AuditPath   string // append-only action trail; empty disables auditing
+	ControlPath string // Unix socket for the phage CLI; empty disables it
 	LogLevel    string
 	LearnWindow string // minimum learning duration before Alert/Enforce is advised
 }
@@ -21,6 +22,7 @@ func Default() Config {
 		Mode:        mode.Learn,
 		StatePath:   "/var/lib/phage/baseline.json",
 		AuditPath:   "",
+		ControlPath: "/run/phage.sock",
 		LogLevel:    "info",
 		LearnWindow: "168h",
 	}

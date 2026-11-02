@@ -35,8 +35,10 @@ The first real value.
       Live-verified — the same remote attack, in `enforce` mode, was frozen
       mid-run (`cgroup.freeze=1`, euid 0 but unable to execute), not killed.
 - [x] Audit log (append-only JSON lines) with the triggering reason per action.
-- [ ] Threshold tuning and a `phage` CLI to inspect/override/thaw.
-- [ ] Race-free provenance: loginuid is now read in-kernel (eBPF), not from /proc.
+- [x] `phage` CLI over a Unix control socket: `status`, `events [n]`, and
+      `thaw <pid>` to release a false positive. Verified live against the attack.
+- [x] Race-free provenance: loginuid is now read in-kernel (eBPF), not from /proc.
+- [ ] Threshold tuning via a config file.
 
 ## M3 — Blast-radius containment (auto-jail)
 - [ ] Learn a service's normal syscall/file/network behavior.
