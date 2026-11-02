@@ -29,6 +29,7 @@ import (
 	"github.com/AzozzALFiras/Phage/internal/policy/mode"
 	"github.com/AzozzALFiras/Phage/internal/response/action"
 	"github.com/AzozzALFiras/Phage/internal/response/contain"
+	"github.com/AzozzALFiras/Phage/internal/response/netquarantine"
 	"github.com/AzozzALFiras/Phage/internal/selfprotect"
 	"github.com/AzozzALFiras/Phage/internal/sensor/decode"
 	"github.com/AzozzALFiras/Phage/internal/sensor/loader"
@@ -50,6 +51,7 @@ type App struct {
 	scorer        scorer.Scorer
 	engine        *engine.Engine
 	freezer       *contain.Freezer
+	netq          *netquarantine.Manager
 	audit         *audit.Writer
 
 	started time.Time
@@ -142,6 +144,19 @@ func (a *App) Run(ctx context.Context) error {
 				defer g.Close()
 				log.Printf("self-protection ARMED: signals that would kill the agent are denied (except from pid 1 / launcher); systemctl stop and reboot still work")
 			}
+		}
+	}
+
+	// In enforce mode, load per-process network quarantine (the reversible
+	// isolate rung used for egress/C2 verdicts). Optional: if it can't load, the
+	// agent falls back to freeze.
+	if a.cfg.Mode == mode.Enforce {
+		nqObj := filepath.Join(filepath.Dir(a.objPath), "netquarantine.bpf.o")
+		if nq, err := netquarantine.New(nqObj); err != nil {
+			log.Printf("network quarantine unavailable: %v (egress verdicts will freeze instead)", err)
+		} else {
+			a.netq = nq
+			defer nq.Close()
 		}
 	}
 
@@ -273,7 +288,17 @@ func (a *App) respond(ev model.Event, v verdict.Verdict, act action.Action) {
 
 	contained := false
 	if act.Type == action.Freeze {
-		if ok, why := containmentSafe(ev); !ok {
+		// Egress/C2 verdicts prefer the lighter, reversible rung: sever the
+		// process's network but let it keep running (forensics survive), rather
+		// than freezing the whole tree.
+		if ev.Kind == kind.Connect && a.netq != nil {
+			if err := a.netq.Isolate(ev.PID); err != nil {
+				log.Printf("ISOLATE pid=%d failed: %v", ev.PID, err)
+			} else {
+				contained = true
+				log.Printf("CONTAIN pid=%d comm=%q ISOLATED (egress severed, process alive, reversible)", ev.PID, ev.Comm)
+			}
+		} else if ok, why := containmentSafe(ev); !ok {
 			log.Printf("CONTAIN pid=%d comm=%q SKIPPED (%s) — alert only", ev.PID, ev.Comm, why)
 		} else if err := a.freezer.Freeze(ev.PID); err != nil {
 			log.Printf("CONTAIN pid=%d failed: %v", ev.PID, err)
@@ -323,8 +348,12 @@ func (a *App) RecentAlerts(n int) []control.Alert {
 	return out
 }
 
-// Thaw implements control.Handler: release a quarantined process (false positive).
+// Thaw implements control.Handler: release a quarantined process (false
+// positive) — both a cgroup-freeze and a network isolation, whichever applies.
 func (a *App) Thaw(pid int32) error {
+	if a.netq != nil {
+		_ = a.netq.Release(pid)
+	}
 	return a.freezer.Thaw(pid)
 }
 

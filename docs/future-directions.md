@@ -67,9 +67,11 @@ explainable loop* is the new part).
   -honeytokens`, [demo](demo/honeytokens.md)): decoys planted only where no real
   file exists, inodes registered in-kernel, any read → CRITICAL, removed on exit.
   Highest-signal detector; near-zero FP.
-- **Per-process net-quarantine** — the missing rung between alert and freeze: sever
-  a process's egress (cgroup/connect BPF) without killing it, so C2 dies but
-  forensics live. Reversible, TTL'd.
+- **Per-process net-quarantine** — ✅ **shipped** ([demo](demo/network-quarantine.md)):
+  egress/C2 verdicts in enforce sever the offending service's outbound network via
+  `cgroup/connect` programs attached to its cgroup (catches forked children),
+  process stays alive, reversible via `phage thaw`. Follow-up: `cgroup_skb/egress`
+  to also cut established sockets; a TTL auto-release.
 - **Self-healing restore** — content-addressed blob store for sentinel paths
   (`authorized_keys`, web-root, cron); on a tamper verdict, atomically restore and
   quarantine the attacker's version. "Put it back in 200ms with the diff saved."

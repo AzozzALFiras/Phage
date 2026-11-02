@@ -168,8 +168,15 @@ Techniques that defeat file-based tooling, caught behaviourally.
       baseline.
 
 ## M4 — Self-healing
-- [ ] Automated response playbooks (isolate network, restart clean, roll back).
-- [ ] Recovery to a known-good state.
+- [x] **Network quarantine (isolate):** an egress/C2 verdict in enforce severs the
+      offending service's outbound network (`cgroup/connect` programs on its
+      cgroup) without killing it — C2 dies, the process lives for forensics,
+      reversible via `phage thaw`. Live-verified: a beacon's first dial connected
+      (and was detected), every subsequent dial was blocked, the process never
+      stopped. See [demo](demo/network-quarantine.md).
+- [ ] Also cut established sockets (`cgroup_skb/egress`); TTL auto-release.
+- [ ] Self-heal: restore tampered sentinel files (authorized_keys/web-root/cron)
+      from a content-addressed store; recovery to a known-good state.
 
 ## Model evolution (crosscutting)
 Frequency surprise → co-occurrence → time decay → sequence/graph models, all
