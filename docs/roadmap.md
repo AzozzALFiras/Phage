@@ -175,8 +175,15 @@ Techniques that defeat file-based tooling, caught behaviourally.
       (and was detected), every subsequent dial was blocked, the process never
       stopped. See [demo](demo/network-quarantine.md).
 - [ ] Also cut established sockets (`cgroup_skb/egress`); TTL auto-release.
-- [ ] Self-heal: restore tampered sentinel files (authorized_keys/web-root/cron)
-      from a content-addressed store; recovery to a known-good state.
+- [x] **Self-heal:** `phaged -heal` snapshots sentinel files (authorized_keys,
+      cron, ld.so.preload) and, on a malicious-write verdict (enforce), atomically
+      restores the known-good version while quarantining the attacker's as
+      evidence. Verdict- and snapshot-gated, so a legitimate edit is never
+      reverted. Live-verified: a backdoor key appended to authorized_keys was
+      removed within a moment, the legit key kept, the attacker version saved. See
+      [demo](demo/self-healing.md).
+- [ ] Re-snapshot on verified/session writes; extend to the web root; recovery to
+      a broader known-good state.
 
 ## Model evolution (crosscutting)
 Frequency surprise → co-occurrence → time decay → sequence/graph models, all

@@ -72,9 +72,10 @@ explainable loop* is the new part).
   `cgroup/connect` programs attached to its cgroup (catches forked children),
   process stays alive, reversible via `phage thaw`. Follow-up: `cgroup_skb/egress`
   to also cut established sockets; a TTL auto-release.
-- **Self-healing restore** — content-addressed blob store for sentinel paths
-  (`authorized_keys`, web-root, cron); on a tamper verdict, atomically restore and
-  quarantine the attacker's version. "Put it back in 200ms with the diff saved."
+- **Self-healing restore** — ✅ **shipped** (`phaged -heal`,
+  [demo](demo/self-healing.md)): snapshots sentinel files and, on a malicious-write
+  verdict, atomically restores the known-good version and quarantines the
+  attacker's. Verdict- and snapshot-gated so legit edits aren't reverted.
 - These compose into a ~90s reel: honeytoken read → net-quarantine (not kill) →
   self-heal authorized_keys → attacker tries to kill the agent → LSM denies & freezes
   → signed incident report → time-travel replay → `thaw` reverses everything.

@@ -30,6 +30,7 @@ import (
 	"github.com/AzozzALFiras/Phage/internal/response/action"
 	"github.com/AzozzALFiras/Phage/internal/response/contain"
 	"github.com/AzozzALFiras/Phage/internal/response/netquarantine"
+	"github.com/AzozzALFiras/Phage/internal/selfheal"
 	"github.com/AzozzALFiras/Phage/internal/selfprotect"
 	"github.com/AzozzALFiras/Phage/internal/sensor/decode"
 	"github.com/AzozzALFiras/Phage/internal/sensor/loader"
@@ -52,6 +53,7 @@ type App struct {
 	engine        *engine.Engine
 	freezer       *contain.Freezer
 	netq          *netquarantine.Manager
+	healer        *selfheal.Store
 	audit         *audit.Writer
 
 	started time.Time
@@ -160,6 +162,14 @@ func (a *App) Run(ctx context.Context) error {
 		}
 	}
 
+	// Opt-in self-healing: snapshot the sentinel files now, restore them after a
+	// malicious write (enforce). Only files snapshotted here are ever healed.
+	if a.cfg.Heal {
+		a.healer = selfheal.New("/var/lib/phage/quarantine")
+		n := a.healer.SnapshotAll(selfheal.DefaultSentinels())
+		log.Printf("self-heal armed: %d sentinel file(s) snapshotted (restored on malicious write)", n)
+	}
+
 	log.Printf("sensors attached (creds, exec, egress, files, kernel-enabling ops, self-defense); mode=%s obj=%s", a.cfg.Mode, a.objPath)
 
 	if srv, err := control.Serve(ctx, a.cfg.ControlPath, a); err != nil {
@@ -203,6 +213,15 @@ func (a *App) Run(ctx context.Context) error {
 			a.nEvents++
 			a.mu.Unlock()
 			a.respondHoneytoken(ev)
+			continue
+		}
+
+		// The agent's own file writes (e.g. a self-heal restore) are never a
+		// threat — don't score them, and never let them re-trigger a heal.
+		if ev.Kind == kind.FileWrite && ev.Comm == "phaged" {
+			a.mu.Lock()
+			a.nEvents++
+			a.mu.Unlock()
 			continue
 		}
 
@@ -308,6 +327,13 @@ func (a *App) respond(ev model.Event, v verdict.Verdict, act action.Action) {
 		}
 	}
 
+	// Self-heal a malicious write to a snapshotted sentinel file (enforce). The
+	// engine's Freeze decision marks the write malicious; containment of the
+	// writer is separate (above) — this restores the file itself.
+	if ev.Kind == kind.FileWrite && act.Type == action.Freeze && a.healer != nil && a.healer.Watched(ev.File.Path) {
+		go a.selfHeal(ev.File.Path)
+	}
+
 	a.mu.Lock()
 	a.nAlerts++
 	if contained {
@@ -401,6 +427,20 @@ func (a *App) respondHoneytoken(ev model.Event) {
 		act.Type = action.Freeze
 	}
 	a.respond(ev, v, act)
+}
+
+// selfHeal restores a tampered sentinel file after letting the malicious write
+// land, keeping the attacker's version as evidence.
+func (a *App) selfHeal(path string) {
+	time.Sleep(250 * time.Millisecond) // let the write complete, then revert it
+	q, err := a.healer.Heal(path)
+	if err != nil {
+		log.Printf("self-heal %s failed: %v", path, err)
+		return
+	}
+	if q != "" {
+		log.Printf("SELF-HEALED %s (restored known-good; attacker version saved to %s)", path, q)
+	}
 }
 
 // deadMansSwitch is the anti-blinding heartbeat: if the event stream was active

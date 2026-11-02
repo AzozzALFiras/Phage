@@ -33,6 +33,7 @@ func main() {
 	modeName := flag.String("mode", defaults.Mode.String(), "operating mode: learn | alert | enforce")
 	protect := flag.Bool("protect", false, "arm eBPF-LSM tamper-resistance: deny signals that would kill the agent (needs BPF LSM; systemctl/reboot still stop it)")
 	honeytokens := flag.Bool("honeytokens", false, "plant decoy credential files; any read of one is a high-confidence intrusion alert")
+	heal := flag.Bool("heal", false, "self-heal: restore sentinel files (authorized_keys/cron/...) after a malicious write, keeping the attacker's version as evidence (enforce)")
 	flag.Parse()
 
 	// Base config: the file if given (validated on load), else the defaults.
@@ -70,6 +71,9 @@ func main() {
 	}
 	if set["honeytokens"] {
 		cfg.Honeytokens = *honeytokens
+	}
+	if set["heal"] {
+		cfg.Heal = *heal
 	}
 	if err := cfg.Validate(); err != nil {
 		log.Fatalf("phaged: %v", err)

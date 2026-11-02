@@ -32,6 +32,7 @@ type Config struct {
 	Thresholds  Thresholds
 	Protect     bool // arm eBPF-LSM tamper-resistance (deny signals to the agent); opt-in, needs BPF LSM
 	Honeytokens bool // plant decoy credential files and alert on any read of them; opt-in
+	Heal        bool // self-heal: restore sentinel files after a malicious write (enforce); opt-in
 }
 
 // Default returns a safe starting configuration: learn-only, local state, a
