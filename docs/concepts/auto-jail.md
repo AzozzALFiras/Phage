@@ -51,17 +51,34 @@ the spawn regardless.
 ## Enforcement: exec-lock (eBPF-LSM)
 On a kernel booted with the BPF LSM active (`bpf` in `/sys/kernel/security/lsm`),
 `phage-jail lock` does what seccomp cannot: it attaches an `lsm/bprm_check_security`
-program that **denies any new `execve` inside a locked service's cgroup**. Applied
-to a service after it has started, an exploited instance — a webshell, an injected
-command — simply cannot launch `sh`, `bash`, `curl`, or anything else; the kernel
-refuses the exec with `EPERM`. The service keeps running (a long-lived daemon
-never needs to spawn new programs), and nothing outside its cgroup is affected.
+program that controls which programs a service may `execve`, per cgroup. It uses
+the same learn → enforce ladder as detection:
 
-It is default-allow and scoped to exactly the cgroups you lock, and the lock lifts
-the instant `phage-jail` exits — so it cannot lock the box out. Together with the
-seccomp profile (which removes the exotic primitives) this is real blast-radius
-containment: an exploit lands in a process that can neither spawn a shell nor use
-the dangerous syscalls, learned per service rather than hand-written.
+- **`phage-jail lock -unit X -learn N`** watches the service for `N` seconds and
+  records the programs it legitimately execs, then enforces: those may still run,
+  anything new is denied with `EPERM`. A service that spawns a couple of helpers
+  keeps working; a shell it has never run does not.
+- **`phage-jail lock -unit X`** (no learn) is a strict lock: *no* new program may
+  exec at all — the right policy for a service that never execs after startup.
+
+Either way, an exploited instance — a webshell, an injected command — cannot
+launch `sh`/`bash`/`curl` it has never legitimately run; the kernel refuses the
+exec. The service keeps running, and nothing outside its cgroup is affected. It
+is default-allow and scoped to exactly the cgroups you lock, and the lock lifts
+the instant `phage-jail` exits — so it cannot lock the box out.
+
+The allowlist is keyed on the executable **path**, not its inode — deliberately.
+On modern distros coreutils ships as one multi-call binary with `date`, `id`,
+`sleep`, `cat`, … all hardlinked to a single inode, so an inode key would let
+"allow `date`" silently allow `id` and the rest. Keying on the path
+(`bprm->filename`, FNV-hashed in-kernel) keeps the hardlinks distinct. (The
+trade-off: the same binary invoked by a different path reads as new — strict, and
+fine for a service's own consistent execs.)
+
+Together with the seccomp profile (which removes the exotic primitives) this is
+real blast-radius containment: an exploit lands in a process that can neither
+spawn a new program nor use the dangerous syscalls, learned per service rather
+than hand-written.
 
 ## Getting a trustworthy profile
 - **Capture startup.** A profile missing the service's earliest syscalls will

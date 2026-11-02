@@ -113,8 +113,12 @@ The first real value.
       cgroup is denied exec (EPERM) while the service keeps serving and other
       cgroups are untouched. `phage-jail lock`. See
       [demo/auto-jail](demo/auto-jail.md).
-- [ ] Allowlist exec-lock: permit a service's few legitimate child programs and
-      deny the rest (vs today's all-or-nothing), learned from the exec baseline.
+- [x] **Allowlist exec-lock** (learn→enforce): `phage-jail lock -learn N` records
+      the programs a service legitimately execs, then permits only those and
+      denies anything new. Keyed on the executable path (not inode — coreutils is
+      one multi-call binary, so an inode key would let "allow date" allow id too).
+      Live-verified: a learned `/bin/date` stays allowed while `bash` and `id` are
+      denied, and the service keeps running.
 - [ ] Apply the seccomp profile automatically (write the drop-in, restart jailed)
       with the learn→enforce ladder and a staging-validation gate.
 - [ ] Extend LSM enforcement to egress/file per cgroup, reusing the detection

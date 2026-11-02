@@ -63,11 +63,17 @@ not implement a new sandbox.
 - Generated profiles are a **validated starting point**, not a blind drop-in; the
   docs say so plainly.
 - The seccomp gap (a service's own `execve`) is closed by an **eBPF-LSM exec-lock**
-  (`lsm/bprm_check_security`), shipped alongside this. It denies any new exec
-  inside a locked service's cgroup — default-allow, scoped to the cgroups you
-  lock, lifted when the tool exits. This is the piece seccomp cannot provide, and
-  it required enabling the BPF LSM on the target (`lsm=...,bpf` at boot; safe —
-  the hook is inert until an LSM program attaches).
-- Extending LSM enforcement to egress/file and to an *allowlist* exec-lock (permit
-  a service's few legitimate children, deny the rest), reusing the detection
-  baseline, remains the next increment.
+  (`lsm/bprm_check_security`), shipped alongside this. It runs the same
+  learn → enforce ladder per cgroup: learn the programs a service legitimately
+  execs, then allow only those and deny anything new with `EPERM` (or, with no
+  learn, a strict lock denying every new exec). Default-allow, scoped to the
+  cgroups you lock, lifted when the tool exits. It required enabling the BPF LSM
+  on the target (`lsm=...,bpf` at boot; safe — the hook is inert until a program
+  attaches).
+- The exec allowlist keys on the executable **path** (`bprm->filename`, hashed),
+  not the inode: coreutils/busybox multi-call binaries hardlink many applets to
+  one inode, so an inode key would let "allow `date`" silently allow `id`. (We
+  cannot use `bpf_d_path` here — `bprm_check_security` is not on its allowlist —
+  so we hash the path string the caller passed.)
+- Extending LSM enforcement to egress/file per cgroup, reusing the detection
+  baseline, remains a future increment.

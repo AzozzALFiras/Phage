@@ -58,29 +58,33 @@ jail they succeed.
 ## Enforcement that seccomp can't do: exec-lock (eBPF-LSM)
 The seccomp profile above cannot stop the service spawning a shell (systemd needs
 `execve` to start it). On a kernel booted with the BPF LSM active, `phage-jail
-lock` closes that gap — an `lsm/bprm_check_security` program denies any new
-`execve` inside the locked cgroup. Same web service, locked:
+lock` closes that gap with an `lsm/bprm_check_security` program, using the same
+learn → enforce ladder. Here a service that legitimately runs `/bin/date` in a
+loop is learned, then enforced:
 
 ```
-== BEFORE lock: exec inside the service cgroup ==
-  joined: 0::/system.slice/phage-webdemo.service
-  -> exec SUCCEEDED (a shell could spawn here)
-== apply eBPF-LSM exec-lock on the service ==
-  exec-locked phage-webdemo.service (cgroup id 6774): it can no longer spawn new programs
-== AFTER lock: same attempt inside the service cgroup ==
-  joined: 0::/system.slice/phage-webdemo.service
-  bash: /bin/echo: Operation not permitted
-  -> exec DENIED (rc=126) — no new program can start in this cgroup
-== is the service itself still alive? ==
-  service serves HTTP: 200  state: active
-== collateral check: exec OUTSIDE the locked cgroup still works ==
-  -> outside-cgroup exec OK
+== learn (6s) then enforce the allowlist ==
+  learning the child programs of phage-jaildemo.service for 6s — exercise the service now
+  enforcing: 2 learned program(s) may exec; anything new is denied
+== under enforcement, attempt execs inside the service cgroup ==
+  [/bin/date +%s]  -> ALLOWED        # learned legit helper
+  [/bin/bash -c :] -> DENIED: /bin/bash: Operation not permitted
+  [/usr/bin/id]    -> DENIED: /usr/bin/id: Operation not permitted
+== the service itself is still running? ==
+  active
+== collateral: exec OUTSIDE the jailed cgroup still works ==
+  outside exec OK
 ```
 
-A process in the locked cgroup — exactly what an exploited service's shell would
-be — is refused at the kernel, while the service keeps serving and every other
-cgroup is untouched. When `phage-jail` exits, the lock lifts and exec works
-again: enforcement is tied to the tool's lifetime, so it cannot lock the box out.
+The learned helper still runs; a reverse shell (`bash`) or any never-seen program
+is refused at the kernel, while the service keeps running and every other cgroup
+is untouched. When `phage-jail` exits, the lock lifts — enforcement is tied to
+the tool's lifetime, so it cannot lock the box out.
+
+Note `/usr/bin/id` is denied even though, on this distro, `date`, `id`, and
+`sleep` are **the same inode** (coreutils is one multi-call binary). The jail
+keys on the executable path, not the inode, precisely so that allowing `date`
+does not silently allow `id` — a subtlety an inode-based allowlist gets wrong.
 
 ## Honest notes
 - **Capturing startup matters.** An earlier run that attached *after* the service

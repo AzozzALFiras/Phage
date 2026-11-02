@@ -81,6 +81,7 @@ func cmdLock(args []string) error {
 	unit := fs.String("unit", "", "systemd unit to exec-lock (e.g. nginx.service)")
 	cgPath := fs.String("path", "", "cgroup v2 path to exec-lock instead of -unit")
 	objPath := fs.String("bpf", "bpf/build/jail_lsm.bpf.o", "path to the compiled jail LSM eBPF object")
+	learn := fs.Int("learn", 0, "learn the service's legitimate child programs for N seconds, then enforce the allowlist (0 = strict lock: deny every new exec)")
 	_ = fs.Parse(args)
 
 	if *unit == "" && *cgPath == "" {
@@ -97,22 +98,41 @@ func cmdLock(args []string) error {
 	if label == "" {
 		label = *cgPath
 	}
+	log.Printf("target %s -> cgroup %s (id %d)", label, resolved, cgid)
 
 	lock, err := enforce.LoadExecLock(*objPath)
 	if err != nil {
 		return err
 	}
 	defer lock.Close() // detaching lifts enforcement for everything
-	if err := lock.Lock(cgid); err != nil {
-		return err
-	}
 	defer lock.Unlock(cgid)
-
-	log.Printf("exec-locked %s (cgroup %s, id %d): it can no longer spawn new programs", label, resolved, cgid)
-	log.Printf("a reverse shell or injected command in this service will be denied at exec. Ctrl-C to release.")
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	if *learn > 0 {
+		if err := lock.Learn(cgid); err != nil {
+			return err
+		}
+		log.Printf("learning the child programs of %s (cgroup id %d) for %ds — exercise the service now", label, cgid, *learn)
+		select {
+		case <-ctx.Done():
+			log.Printf("interrupted during learn; enforcing what was captured")
+		case <-time.After(time.Duration(*learn) * time.Second):
+		}
+		if err := lock.Enforce(cgid); err != nil {
+			return err
+		}
+		log.Printf("enforcing: %d learned program(s) may exec in %s; anything new is denied. Ctrl-C to release.",
+			lock.AllowedCount(cgid), label)
+	} else {
+		if err := lock.Enforce(cgid); err != nil {
+			return err
+		}
+		log.Printf("strict exec-lock on %s (cgroup id %d): no new program may exec. Ctrl-C to release.", label, cgid)
+	}
+	log.Printf("a reverse shell or injected command in this service will be denied at exec.")
+
 	<-ctx.Done()
 	log.Printf("releasing exec-lock on %s", label)
 	return nil

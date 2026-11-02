@@ -15,8 +15,13 @@ func LoadExecLock(objPath string) (*ExecLock, error) {
 	return nil, errors.New("eBPF-LSM enforcement requires Linux")
 }
 
-// Lock always fails off Linux.
-func (e *ExecLock) Lock(cgroupID uint64) error {
+// Learn always fails off Linux.
+func (e *ExecLock) Learn(cgroupID uint64) error {
+	return errors.New("eBPF-LSM enforcement requires Linux")
+}
+
+// Enforce always fails off Linux.
+func (e *ExecLock) Enforce(cgroupID uint64) error {
 	return errors.New("eBPF-LSM enforcement requires Linux")
 }
 
@@ -24,6 +29,9 @@ func (e *ExecLock) Lock(cgroupID uint64) error {
 func (e *ExecLock) Unlock(cgroupID uint64) error {
 	return errors.New("eBPF-LSM enforcement requires Linux")
 }
+
+// AllowedCount is always 0 off Linux.
+func (e *ExecLock) AllowedCount(cgroupID uint64) int { return 0 }
 
 // Close is a no-op off Linux.
 func (e *ExecLock) Close() error { return nil }
