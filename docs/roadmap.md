@@ -7,8 +7,10 @@ Architecture, pipeline seams, docs, buildable Go skeleton. (You are here.)
 
 ## M1 — Privilege-escalation detection (learn + alert)
 The first real value.
-- [ ] `creds.bpf.c` hooking `commit_creds`, streaming events via ring buffer.
-- [ ] Sensor loader (`cilium/ebpf`) + ring-buffer reader + decode.
+- [x] `creds.bpf.c` hooking `commit_creds` — compiles with CO-RE and passes the
+      kernel verifier on the target (Ubuntu 26.04, kernel 7.0, x86_64).
+- [ ] Stream events to userspace: sensor loader (`cilium/ebpf`) + ring-buffer
+      reader + decode.
 - [ ] Enrichment: process lineage, session/TTY provenance.
 - [ ] Baseline persistence (embedded KV).
 - [ ] Learn mode end-to-end; alert mode with explained verdicts.

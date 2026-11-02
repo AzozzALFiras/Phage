@@ -52,7 +52,9 @@ int BPF_PROG(on_commit_creds, struct cred *new)
 	e->uid = (__u32)uid_gid;
 	e->euid = 0; /* current euid; refined in userspace */
 	e->new_euid = BPF_CORE_READ(new, euid.val);
-	e->cap_eff = BPF_CORE_READ(new, cap_effective.cap[0]);
+	/* kernel_cap_t became a single u64 `val` in Linux 6.3; older kernels used
+	 * cap[2]. We target modern BTF kernels, so read `val` directly. */
+	e->cap_eff = BPF_CORE_READ(new, cap_effective.val);
 	bpf_get_current_comm(&e->comm, sizeof(e->comm));
 
 	bpf_ringbuf_submit(e, 0);
