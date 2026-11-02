@@ -50,11 +50,13 @@ explainable loop* is the new part).
 - Structured explainable verdicts (#4) — extend the reasons we already emit.
 
 ### Tier 1 — The credibility knockout (weeks)
-- **PhageBench** — a public, reproducible eval: an attack corpus (we already have
-  most of it in `scripts/dev/*demo*.sh`/`proof.sh`) **plus a benign workload corpus**,
-  publishing detection rate **and** false-positives-per-host-per-day, run against
-  Falco/Tracee too. No one publishes honest FP numbers; owning the measuring stick
-  is the single strongest reputation artifact. Rigorous methodology is mandatory.
+- **PhageBench** — ✅ **v1 shipped** ([benchmark](benchmark/phagebench.md),
+  `scripts/bench/phagebench.sh`): learns a benign baseline, then reports detection
+  rate (7/7 on the attack corpus) **and** false positives from a benign-only
+  window, with an honest breakdown showing the FPs are unlearned benign *system*
+  programs (the exec-novelty-vs-baseline-maturity tradeoff). Remaining: run the
+  same corpus against Falco/Tracee and publish the comparison; report FP as a
+  function of learn duration.
 
 ### Tier 2 — The "self-defending" thesis made real (consensus; M)
 - Agent self-defense / anti-blinding + dead-man's-switch (consensus #1).

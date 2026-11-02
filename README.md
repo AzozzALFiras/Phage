@@ -44,6 +44,11 @@ succeeds) and on (detected, contained, or blocked), with the raw evidence and a
 one-command way to reproduce it:
 [docs/demo/proof-before-after.md](docs/demo/proof-before-after.md).
 
+**The honest numbers.** [PhageBench](docs/benchmark/phagebench.md) measures
+detection rate *and* false-positives together (7/7 on the attack corpus; and an
+honest look at where the false positives come from) — reproducible with one
+script.
+
 ## The thesis
 
 1. **Shrink the attack surface.** Fewer doors, fewer ways in.
