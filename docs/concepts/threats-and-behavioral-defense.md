@@ -93,6 +93,7 @@ intentionally not.
 | 3 | Outbound connection from a process that normally never egresses | ✅ egress sensor (`tcp_connect`) — live-verified. See [egress-detection](egress-detection.md) and the [demo](../demo/egress-detection.md) |
 | 4 | Writes to persistence/credential artifacts (`authorized_keys`, `/etc/cron*`, web-root `*.php`, `ld.so.preload`) | ✅ file sensor (`security_file_open` + `bpf_d_path`) — live-verified. See [file-persistence-detection](file-persistence-detection.md) and the [demo](../demo/file-persistence.md) |
 | 5 | Dangerous enabling syscalls (`unshare` userns, `bpf` load, `io_uring_setup`, `userfaultfd`) from a process with no history of them | ✅ enable sensors (`fentry` on `create_user_ns`/`bpf_prog_load`/`io_uring_setup`/`new_userfaultfd`) — live-verified. See [demo](../demo/kernel-enabling-ops.md) |
+| 6 | **Tamper with the monitor itself** — kill/stop/ptrace the agent or blind its telemetry | ✅ self-defense sensors (`signal_generate` + `ptrace_attach`, agent pid-aware) + dead-man's-switch — live-verified. See [demo](../demo/agent-self-defense.md). Honest ceiling: a ring-0/more-privileged attacker |
 
 Every signal is judged against the host's **learned baseline**, never a fixed
 rule — so "normal for this host" is what decides, and a never-before-seen

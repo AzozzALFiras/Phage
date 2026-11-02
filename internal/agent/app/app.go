@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -104,7 +105,14 @@ func (a *App) Run(ctx context.Context) error {
 		sensor.Close()
 	}()
 
-	log.Printf("sensors attached (creds, exec, egress, files, kernel-enabling ops); mode=%s obj=%s", a.cfg.Mode, a.objPath)
+	// Arm self-defense: tell the kernel sensors our own pid so they flag any
+	// signal/ptrace aimed at the agent (anti-blinding).
+	if err := sensor.SetSelfPID(uint32(os.Getpid())); err != nil {
+		log.Printf("self-defense arm: %v", err)
+	}
+	go a.deadMansSwitch(ctx)
+
+	log.Printf("sensors attached (creds, exec, egress, files, kernel-enabling ops, self-defense); mode=%s obj=%s", a.cfg.Mode, a.objPath)
 
 	if srv, err := control.Serve(ctx, a.cfg.ControlPath, a); err != nil {
 		log.Printf("control socket disabled: %v", err)
@@ -128,6 +136,17 @@ func (a *App) Run(ctx context.Context) error {
 			continue
 		}
 		ev = a.enricher.Enrich(ev)
+
+		// Self-defense is not a learned/averaged signal: an attempt to kill,
+		// stop, or ptrace the agent by anything other than its supervisor is
+		// intrinsically critical and is surfaced in every mode (including learn).
+		if ev.Kind == kind.SelfDefense {
+			a.mu.Lock()
+			a.nEvents++
+			a.mu.Unlock()
+			a.respondSelfDefense(ev)
+			continue
+		}
 
 		var vec feature.Vector
 		switch ev.Kind {
@@ -264,6 +283,68 @@ func (a *App) RecentAlerts(n int) []control.Alert {
 // Thaw implements control.Handler: release a quarantined process (false positive).
 func (a *App) Thaw(pid int32) error {
 	return a.freezer.Thaw(pid)
+}
+
+// supervisorComms may legitimately send the agent a stop signal (service
+// shutdown). A lethal signal from anything else is treated as a tamper attempt.
+var supervisorComms = map[string]bool{
+	"systemd": true, "init": true, "systemd-shutdow": true,
+}
+
+// respondSelfDefense handles an attack on the agent itself. It is deliberately
+// outside the learned scorer: tampering with the monitor is self-evidently
+// hostile and must surface even on a thin/empty baseline. The only benign case
+// is the service supervisor sending a stop signal during shutdown.
+func (a *App) respondSelfDefense(ev model.Event) {
+	if ev.SelfDefOp != "ptrace" && supervisorComms[ev.Comm] {
+		return // legitimate service stop by the supervisor
+	}
+	detail := fmt.Sprintf("attempt to tamper with the Phage agent: %s by %q (pid %d) — monitor blinding/kill attempt",
+		ev.SelfDefOp, ev.Comm, ev.PID)
+	v := verdict.Verdict{
+		Score:   1.0,
+		Reasons: []verdict.Reason{{Feature: "self.tamper", Contribution: 1.0, Detail: detail}},
+	}
+	act := action.Action{Type: action.Notify}
+	if a.cfg.Mode == mode.Enforce {
+		act.Type = action.Freeze // contain the tamperer (subject to containmentSafe)
+	}
+	a.respond(ev, v, act)
+}
+
+// deadMansSwitch is the anti-blinding heartbeat: if the event stream was active
+// and then goes silent, the agent's sensors may have been detached or disabled.
+// Rule engines cannot detect the *absence* of telemetry; Phage can. It only
+// warns when a previously-busy stream stops, so an idle host stays quiet.
+func (a *App) deadMansSwitch(ctx context.Context) {
+	const window = 30 * time.Second
+	t := time.NewTicker(window)
+	defer t.Stop()
+	var last uint64
+	var ewma float64 // smoothed events-per-window
+	first := true
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			a.mu.Lock()
+			now := a.nEvents
+			a.mu.Unlock()
+			delta := now - last
+			last = now
+			if first { // prime, don't judge the first window
+				first = false
+				ewma = float64(delta)
+				continue
+			}
+			// Warn only if the stream was meaningfully active and just stopped.
+			if delta == 0 && ewma >= 20 {
+				log.Printf("CRITICAL self-defense: telemetry stopped unexpectedly (was ~%.0f events/%s, now 0) — sensors may be disabled or blinded", ewma, window)
+			}
+			ewma = 0.5*ewma + 0.5*float64(delta)
+		}
+	}
 }
 
 // criticalComms is a hard safety allowlist: processes Phage must never freeze,

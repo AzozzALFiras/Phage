@@ -103,6 +103,9 @@ func Event(b []byte) (model.Event, error) {
 	if ev.Kind == kind.Enable {
 		ev.EnableOp = enableOpName(r.Flags)
 	}
+	if ev.Kind == kind.SelfDefense {
+		ev.SelfDefOp = selfDefOp(r.Flags, r.NewEUID)
+	}
 	return ev, nil
 }
 
@@ -137,6 +140,32 @@ func enableOpName(op uint32) string {
 	}
 }
 
+// selfDefOp names the self-defense sub-type. For the signal sub-type (1) the
+// signal number is carried in new_euid; ptrace is sub-type 2.
+func selfDefOp(flags, sig uint32) string {
+	switch flags {
+	case 2:
+		return "ptrace"
+	case 1:
+		switch sig {
+		case 2:
+			return "SIGINT"
+		case 3:
+			return "SIGQUIT"
+		case 9:
+			return "SIGKILL"
+		case 15:
+			return "SIGTERM"
+		case 19:
+			return "SIGSTOP"
+		default:
+			return "signal"
+		}
+	default:
+		return "unknown"
+	}
+}
+
 func mapKind(k uint32) kind.Kind {
 	switch k {
 	case 1:
@@ -151,6 +180,8 @@ func mapKind(k uint32) kind.Kind {
 		return kind.FileWrite
 	case 6:
 		return kind.Enable
+	case 7:
+		return kind.SelfDefense
 	default:
 		return kind.Unknown
 	}

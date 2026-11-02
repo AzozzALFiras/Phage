@@ -19,5 +19,8 @@ func Load(objPath string) (*Sensor, error) { return nil, ErrUnsupported }
 // Read always fails off Linux.
 func (s *Sensor) Read() ([]byte, error) { return nil, ErrUnsupported }
 
+// SetSelfPID is a no-op off Linux.
+func (s *Sensor) SetSelfPID(pid uint32) error { return nil }
+
 // Close is a no-op off Linux.
 func (s *Sensor) Close() error { return nil }

@@ -47,6 +47,23 @@ struct {
 	__uint(max_entries, 1 << 20); /* 1 MiB */
 } phage_events SEC(".maps");
 
+/* self_pid holds the Phage agent's own tgid, written by userspace at startup, so
+ * the self-defense programs can tell a tamper attempt against the agent from any
+ * other signal/ptrace on the box. 0 = unset (self-defense inert). */
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, __u32);
+	__type(value, __u32);
+} self_pid SEC(".maps");
+
+static __always_inline __u32 phage_self_pid(void)
+{
+	__u32 zero = 0;
+	__u32 *p = bpf_map_lookup_elem(&self_pid, &zero);
+	return p ? *p : 0;
+}
+
 /* Per-CPU scratch for inspecting a process's environment at exec: the env region
  * is larger than the 512-byte eBPF stack, so it lives in a map. We scan a bounded
  * window from its start; a hijack var past the window is a documented gap. */
@@ -325,3 +342,70 @@ int BPF_PROG(on_io_uring_setup) { return emit_enable(PHAGE_ENABLE_IOURING); }
 
 SEC("fentry/new_userfaultfd")
 int BPF_PROG(on_userfaultfd) { return emit_enable(PHAGE_ENABLE_UFFD); }
+
+/* Self-defense: the agent watches its own sensory nerves. The dominant 2025
+ * evasion is "blinding" — leaving the agent's process alive but killing or
+ * unhooking its telemetry — so an attack on the monitor must itself be a signal.
+ * The SENDER (current) is recorded; the target is known to be the agent. */
+
+#define SIG_INT 2
+#define SIG_QUIT 3
+#define SIG_KILL 9
+#define SIG_TERM 15
+#define SIG_STOP 19
+
+/* signal_generate fires for every signal delivered on the box; we return
+ * immediately unless the target is the agent and the signal could kill/stop it.
+ * Self-signals (the Go runtime uses SIGURG for preemption) are excluded both by
+ * the lethal-signal filter and the sender==self check. */
+SEC("tp_btf/signal_generate")
+int BPF_PROG(on_signal_generate, int sig, void *info, struct task_struct *task,
+	     int group, int result)
+{
+	__u32 self = phage_self_pid();
+	if (!self)
+		return 0;
+	if (BPF_CORE_READ(task, tgid) != self)
+		return 0;
+	__u32 sender = bpf_get_current_pid_tgid() >> 32;
+	if (sender == self)
+		return 0; /* ignore the agent signalling itself */
+	if (sig != SIG_INT && sig != SIG_QUIT && sig != SIG_KILL &&
+	    sig != SIG_TERM && sig != SIG_STOP)
+		return 0;
+
+	struct phage_event *e = bpf_ringbuf_reserve(&phage_events, sizeof(*e), 0);
+	if (!e)
+		return 0;
+	struct task_struct *cur = bpf_get_current_task_btf();
+	fill_common(e, cur, PHAGE_EVT_SELFDEF);
+	e->flags = PHAGE_SELFDEF_SIGNAL;
+	e->new_euid = sig; /* selfdef carries the signal number here */
+	bpf_ringbuf_submit(e, 0);
+	return 0;
+}
+
+/* ptrace_attach: someone attaching a debugger to the agent (code injection /
+ * inspection). Near-zero baseline — the agent is never a legitimate ptrace
+ * target. */
+SEC("fentry/ptrace_attach")
+int BPF_PROG(on_ptrace_attach, struct task_struct *task)
+{
+	__u32 self = phage_self_pid();
+	if (!self)
+		return 0;
+	if (BPF_CORE_READ(task, tgid) != self)
+		return 0;
+	__u32 sender = bpf_get_current_pid_tgid() >> 32;
+	if (sender == self)
+		return 0;
+
+	struct phage_event *e = bpf_ringbuf_reserve(&phage_events, sizeof(*e), 0);
+	if (!e)
+		return 0;
+	struct task_struct *cur = bpf_get_current_task_btf();
+	fill_common(e, cur, PHAGE_EVT_SELFDEF);
+	e->flags = PHAGE_SELFDEF_PTRACE;
+	bpf_ringbuf_submit(e, 0);
+	return 0;
+}

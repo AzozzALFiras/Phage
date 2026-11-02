@@ -67,6 +67,7 @@ baseline** — never a hardcoded rule:
 | **Outbound connection from a process that never egresses** | reverse shells, C2, exfil | ✅ |
 | **Writes to persistence/credential files** (web-root `.php`, `authorized_keys`, cron) | webshell drop, backdoored keys, persistence | ✅ |
 | **High-risk kernel-enabling ops** by a process with no history of them (userns, eBPF load, io_uring, userfaultfd) | kernel-exploit setup, container escape, eBPF rootkits | ✅ |
+| **Tamper with the agent itself** — kill/stop/ptrace it, or telemetry going silent | EDR blinding / anti-detection | ✅ |
 
 <sub>✅ verified live against a real attack on a test server</sub>
 

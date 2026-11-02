@@ -16,6 +16,7 @@ enum phage_event_kind {
 	PHAGE_EVT_CONNECT      = 4, /* outbound TCP connection (egress) */
 	PHAGE_EVT_FILE         = 5, /* write-open of a persistence/credential file */
 	PHAGE_EVT_ENABLE       = 6, /* high-risk kernel-enabling op (userns/bpf/io_uring/uffd) */
+	PHAGE_EVT_SELFDEF      = 7, /* tamper attempt against the Phage agent itself */
 };
 
 /* Enabling-op codes, carried in `flags` on PHAGE_EVT_ENABLE events. */
@@ -24,6 +25,14 @@ enum phage_enable_op {
 	PHAGE_ENABLE_BPF     = 2, /* eBPF program load (bpf_prog_load) */
 	PHAGE_ENABLE_IOURING = 3, /* io_uring setup */
 	PHAGE_ENABLE_UFFD    = 4, /* userfaultfd */
+};
+
+/* Self-defense sub-type, carried in `flags` on PHAGE_EVT_SELFDEF events. For the
+ * SIGNAL sub-type, `new_euid` carries the signal number. The common fields hold
+ * the SENDER (the would-be tamperer), not the agent. */
+enum phage_selfdef_op {
+	PHAGE_SELFDEF_SIGNAL = 1, /* a lethal/stop signal sent to the agent */
+	PHAGE_SELFDEF_PTRACE = 2, /* a ptrace attach against the agent */
 };
 
 /* One privilege-relevant event as captured in-kernel. Userspace enriches it

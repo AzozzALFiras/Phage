@@ -106,6 +106,19 @@ Techniques that defeat file-based tooling, caught behaviourally.
       CRITICAL while the same program without it stayed silent. See
       [demo](demo/dynamic-linker-hijack.md).
 
+## Self-defense / anti-blinding (crosscutting)
+- [x] The agent watches attacks on **itself**: `tp_btf/signal_generate` (a lethal/
+      stop signal to the agent from a non-supervisor) and `fentry/ptrace_attach`
+      (a debugger/injector attaching to it), pid-aware via a `self_pid` map.
+      Scored outside the learned baseline (tampering with the monitor is
+      intrinsically critical), plus a dead-man's-switch that flags a previously-
+      active event stream going silent. Live-verified: a ptrace attach flagged
+      CRITICAL while the agent kept running. See
+      [demo](demo/agent-self-defense.md).
+- [ ] Enforcement follow-up: `lsm/task_kill` that *denies* the kill, agent binary/
+      map/log write-protection via BPF-LSM, and a watchdog restart — true
+      survive-the-root tamper-resistance (the detection above is the foundation).
+
 ## Scoring: novelty, not rarity (crosscutting)
 - [x] `baseline.Surprise` now measures whether a value is *established* on the
       host, not its probability share of all events. The old `1 - count/total`

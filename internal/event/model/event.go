@@ -109,6 +109,7 @@ type Event struct {
 	Fileless   bool   // exec from an anonymous in-memory image (memfd / unlinked binary); set on Exec events
 	LdPreload  bool   // exec carried a dynamic-linker hijack var (LD_PRELOAD/LD_AUDIT/GLIBC_TUNABLES); set on Exec events
 	EnableOp   string // high-risk kernel-enabling op name (userns/bpf_load/io_uring/userfaultfd); set on Enable events
+	SelfDefOp  string // tamper sub-type against the agent: a signal name (e.g. SIGKILL) or "ptrace"; set on SelfDefense events
 	Exe        string
 	Args       []string
 	CWD        string

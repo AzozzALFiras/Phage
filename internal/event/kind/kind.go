@@ -14,6 +14,7 @@ const (
 	Connect     Kind = "connect"      // outbound TCP connection (egress)
 	FileWrite   Kind = "file_write"   // write-open of a persistence/credential file
 	Enable      Kind = "enable"       // high-risk kernel-enabling op (userns/bpf/io_uring/uffd)
+	SelfDefense Kind = "self_defense" // tamper attempt against the agent (signal/ptrace)
 	SSHAuth     Kind = "ssh_auth"     // sshd authentication outcome
 	SessionOpen Kind = "session_open" // login / PAM session start
 )

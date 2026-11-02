@@ -234,6 +234,26 @@ func TestEnableDecodesOp(t *testing.T) {
 	}
 }
 
+func TestSelfDefenseDecodesOp(t *testing.T) {
+	// subtype 1 (signal) with new_euid = 9 → SIGKILL aimed at the agent.
+	kill := record{kind: 7, pid: 9000, loginUID: 0xFFFFFFFF, flags: 1, newEUID: 9, comm: "bash"}
+	ev, err := Event(kill.bytes())
+	if err != nil {
+		t.Fatalf("Event: %v", err)
+	}
+	if ev.Kind != kind.SelfDefense {
+		t.Fatalf("Kind = %q, want %q", ev.Kind, kind.SelfDefense)
+	}
+	if ev.SelfDefOp != "SIGKILL" {
+		t.Errorf("SelfDefOp = %q, want SIGKILL", ev.SelfDefOp)
+	}
+	// subtype 2 → ptrace.
+	pt := record{kind: 7, pid: 9001, loginUID: 0xFFFFFFFF, flags: 2, comm: "gdb"}
+	if ev2, _ := Event(pt.bytes()); ev2.SelfDefOp != "ptrace" {
+		t.Errorf("SelfDefOp = %q, want ptrace", ev2.SelfDefOp)
+	}
+}
+
 func TestEventRejectsShortSample(t *testing.T) {
 	if _, err := Event([]byte{1, 2, 3}); err == nil {
 		t.Fatal("expected error on short sample")

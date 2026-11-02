@@ -72,6 +72,17 @@ func Load(objPath string) (*Sensor, error) {
 	return s, nil
 }
 
+// SetSelfPID tells the kernel sensors the agent's own tgid, arming the
+// self-defense programs (they ignore signals/ptrace unless the target is the
+// agent). A missing map is not fatal — self-defense is simply inert.
+func (s *Sensor) SetSelfPID(pid uint32) error {
+	m := s.coll.Maps["self_pid"]
+	if m == nil {
+		return nil
+	}
+	return m.Update(uint32(0), pid, ebpf.UpdateAny)
+}
+
 // Read returns the next raw event sample. It blocks until a sample arrives or
 // the Sensor is closed, in which case it returns ringbuf.ErrClosed.
 func (s *Sensor) Read() ([]byte, error) {
