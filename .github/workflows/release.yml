@@ -1,0 +1,49 @@
+name: release
+
+# Build prebuilt artifacts (static binaries + CO-RE eBPF objects) and publish
+# them to a GitHub Release when a version tag is pushed. The eBPF objects are
+# compiled here against the runner's BTF; CO-RE relocates them at load time, so
+# one build runs across kernels. Target: linux/amd64 (the verified platform).
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Install the eBPF toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm libbpf-dev bpftool
+
+      - name: Require kernel BTF (for vmlinux.h)
+        run: test -r /sys/kernel/btf/vmlinux
+
+      - name: Compile the eBPF sensors (CO-RE)
+        run: |
+          make gen-vmlinux
+          make bpf
+
+      - name: Build the agent and CLI
+        run: make build VERSION="${GITHUB_REF_NAME#v}"
+
+      - name: Package the release tarball + checksums
+        run: make dist VERSION="${GITHUB_REF_NAME#v}"
+
+      - name: Publish the GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/phage_linux_amd64.tar.gz
+            dist/SHA256SUMS
+          generate_release_notes: true

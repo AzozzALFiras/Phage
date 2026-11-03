@@ -202,11 +202,10 @@ why seccomp for jails) are recorded as ADRs under
 
 ## Install
 
-Prebuilt releases aren't published yet, so the installer **builds from source** —
-the target therefore needs a Go + clang/libbpf toolchain (it is also where Phage
-runs). One command checks prerequisites (Linux, kernel BTF, Go, clang, make),
-compiles the sensors and the agent, installs them, and starts the service in
-**learn** mode (watches and learns, acts on nothing):
+One command — it detects your platform, downloads a prebuilt release (static
+binaries + CO-RE eBPF objects, **no toolchain required**), verifies its checksum,
+installs it, and starts the service in **learn** mode (watches and learns, acts
+on nothing):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/AzozzALFiras/Phage/main/scripts/install.sh | sudo bash
@@ -219,7 +218,10 @@ git clone https://github.com/AzozzALFiras/Phage.git && cd Phage
 sudo ./scripts/install.sh
 ```
 
-It lays the pieces out like this:
+Prebuilt binaries are published for **linux/amd64**. On another architecture — or
+if you set `PHAGE_FROM_SOURCE=1` — the installer builds from source instead, which
+needs a Go + clang/libbpf toolchain on the target. It lays the pieces out like
+this:
 
 | Path | What |
 |---|---|

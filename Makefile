@@ -17,6 +17,14 @@ LIBDIR      := $(DESTDIR)$(PREFIX)/lib/phage
 SYSCONFDIR  := $(DESTDIR)/etc/phage
 UNITDIR     := $(DESTDIR)/etc/systemd/system
 
+# Release packaging. The tarball carries the binaries, the CO-RE eBPF objects,
+# a default config, and the unit — everything the installer needs with no
+# toolchain on the target. Asset name is unversioned so /releases/latest/download
+# gives a stable URL; the version lives in a VERSION file inside.
+DIST      := dist
+DISTNAME  := phage_linux_amd64
+SHASUM    := $(shell command -v sha256sum >/dev/null 2>&1 && echo sha256sum || echo 'shasum -a 256')
+
 # Map `uname -m` to the arch macro clang's bpf headers expect (x86_64 -> x86).
 UNAME_M   := $(shell uname -m)
 BPF_ARCH  := $(if $(filter x86_64,$(UNAME_M)),x86,$(if $(filter aarch64,$(UNAME_M)),arm64,$(UNAME_M)))
@@ -24,7 +32,7 @@ BPF_ARCH  := $(if $(filter x86_64,$(UNAME_M)),x86,$(if $(filter aarch64,$(UNAME_
 BPF_SRCS  := $(wildcard bpf/programs/*.bpf.c)
 BPF_OBJS  := $(patsubst bpf/programs/%.bpf.c,bpf/build/%.bpf.o,$(BPF_SRCS))
 
-.PHONY: all build daemon cli test lint tidy clean bpf gen-vmlinux install uninstall help
+.PHONY: all build daemon cli test lint tidy clean bpf gen-vmlinux install uninstall dist help
 
 all: build ## Build everything (Go only)
 
@@ -78,6 +86,21 @@ install: ## Install binaries, eBPF objects, config, and the systemd unit (Linux,
 	@echo "  systemctl daemon-reload"
 	@echo "  systemctl enable --now phage      # starts in LEARN mode (acts on nothing)"
 	@echo "  journalctl -u phage -f            # watch it learn"
+
+dist: ## Package a release tarball + checksums from the built artifacts (run build + bpf first)
+	@test -f $(BIN)/phaged || { echo "missing $(BIN)/phaged — run 'make build' first"; exit 1; }
+	@test -f bpf/build/sensors.bpf.o || { echo "missing eBPF objects — run 'make bpf' first"; exit 1; }
+	rm -rf $(DIST)/$(DISTNAME) $(DIST)/$(DISTNAME).tar.gz $(DIST)/SHA256SUMS
+	mkdir -p $(DIST)/$(DISTNAME)/bpf
+	cp $(BIN)/phaged $(BIN)/phage $(BIN)/phage-jail $(DIST)/$(DISTNAME)/
+	cp bpf/build/*.bpf.o $(DIST)/$(DISTNAME)/bpf/
+	cp deploy/phage.service $(DIST)/$(DISTNAME)/phage.service
+	cp configs/phage.example.yaml $(DIST)/$(DISTNAME)/phage.example.yaml
+	cp LICENSE $(DIST)/$(DISTNAME)/LICENSE
+	echo "$(VERSION)" > $(DIST)/$(DISTNAME)/VERSION
+	tar czf $(DIST)/$(DISTNAME).tar.gz -C $(DIST) $(DISTNAME)
+	cd $(DIST) && $(SHASUM) $(DISTNAME).tar.gz > SHA256SUMS
+	@echo "packaged $(DIST)/$(DISTNAME).tar.gz ($(VERSION))"
 
 uninstall: ## Remove binaries, eBPF objects, and the unit (keeps /etc/phage and /var/lib/phage)
 	rm -f $(BINDIR)/phaged $(BINDIR)/phage $(BINDIR)/phage-jail
