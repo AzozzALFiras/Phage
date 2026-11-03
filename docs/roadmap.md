@@ -190,5 +190,37 @@ Frequency surprise → co-occurrence → time decay → sequence/graph models, a
 behind the fixed `scorer.Scorer` seam. See
 [design/analysis-engine](design/analysis-engine.md).
 
+## Backlog — next push (parked)
+Prioritized from early community feedback and a gap review; parked for the next
+work session.
+
+**Trust the baseline (early-stage gaps)**
+- [ ] Seed/import a baseline from a known-clean image or host, so a fresh install
+      doesn't have to assume the box is clean during the learning window.
+- [ ] Maintenance mode + baseline-drift handling: a toggle to relearn/suppress
+      during a deploy or package upgrade, so a new binary spawning new children
+      (legitimate drift) isn't treated as an intrusion in enforce.
+- [ ] Per-cgroup / per-service baseline models (service-scoped "normal").
+
+**New detectors**
+- [ ] Listening-port sensor: a service that suddenly opens a listening socket it
+      never has (hook bind/listen), complementing the outbound-egress sensor.
+- [ ] Explicit "executed from a world-writable path" signal (`/tmp`, `/dev/shm`),
+      rather than relying on exec-pair novelty alone.
+- [ ] Strengthen new-systemd-unit detection (alongside the existing cron watch).
+
+**Response maturity (past freeze/isolate → proactive)**
+- [ ] Auto-apply least-privilege seccomp — finish auto-jail: write the drop-in,
+      restart jailed, learn→enforce with a staging gate.
+- [ ] Recovery beyond freeze/isolate: broader known-good restoration (self-heal).
+
+**Evidence**
+- [ ] Reproducible red-team benchmarks, including low-and-slow evasion, published
+      and compared against Falco / Tetragon / Tracee.
+
+**Reach & hardening**
+- [ ] Broaden container / namespace sensors.
+- [ ] Harden signed-eBPF self-protection.
+
 ## Later
 Tamper-resistance, signed eBPF, multi-host aggregation, a fleet view.
