@@ -1,10 +1,9 @@
 # Quickstart
 
 > ⚠️ Early but working. The daemon loads the eBPF sensors, learns a baseline,
-> and scores/contains in alert and enforce modes. All four sensors —
-> privilege-escalation, exec, egress, and file/persistence — are live-verified on
-> a test server. The hosted installer below is still a placeholder — build from
-> source for now. See [development](development.md).
+> and scores/contains in alert and enforce modes, live-verified on a test server.
+> There are no prebuilt releases yet, so the installer builds from source (needs
+> a Go + clang/libbpf toolchain on the target). See [development](development.md).
 
 ## Requirements
 - Linux, kernel ≥ 5.8 with BTF (`CONFIG_DEBUG_INFO_BTF=y`). Check:
@@ -13,10 +12,20 @@
   ```
 - Root (eBPF loading needs privileges).
 
-## Install (intended)
+## Install
+One command — it checks prerequisites, builds the sensors and agent from source,
+installs the daemon/CLI/eBPF-objects/config/systemd-unit, and starts the service
+in learn mode:
 ```sh
-curl -fsSL https://get.phage.sh | sh     # placeholder; not live yet
+curl -fsSL https://raw.githubusercontent.com/AzozzALFiras/Phage/main/scripts/install.sh | sudo bash
 ```
+Or, from a clone, `sudo ./scripts/install.sh`. A short vanity URL
+(`https://get.phage.sh`) may come later; the raw URL above is the real one today.
+
+If you used the installer, Phage is **already running in learn mode** — skip to
+[Graduate to alert](#graduate-to-alert) once the baseline is mature, and use
+`journalctl -u phage -f` to watch it. The manual steps below are for running
+straight from a source tree instead.
 
 ## First run — always start in learn mode
 ```sh

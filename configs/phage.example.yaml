@@ -6,8 +6,8 @@
 # looks anomalous. See docs/concepts/modes.md.
 mode: learn
 
-# Where the learned baseline is persisted. Survives restarts.
-state_path: /var/lib/phage/baseline.db
+# Where the learned baseline is persisted (JSON on disk). Survives restarts.
+state_path: /var/lib/phage/baseline.json
 
 # Minimum time to stay in learn mode before alert/enforce is advisable.
 # A week captures weekly cron and maintenance patterns.

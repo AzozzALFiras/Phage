@@ -7,6 +7,16 @@ BIN       ?= bin
 VERSION   ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS   := -X main.version=$(VERSION)
 
+# Install layout (override PREFIX/DESTDIR for packaging). phaged finds the
+# auxiliary eBPF objects next to the one given with -bpf, so they all live in
+# LIBDIR together.
+PREFIX     ?= /usr/local
+DESTDIR    ?=
+BINDIR      := $(DESTDIR)$(PREFIX)/bin
+LIBDIR      := $(DESTDIR)$(PREFIX)/lib/phage
+SYSCONFDIR  := $(DESTDIR)/etc/phage
+UNITDIR     := $(DESTDIR)/etc/systemd/system
+
 # Map `uname -m` to the arch macro clang's bpf headers expect (x86_64 -> x86).
 UNAME_M   := $(shell uname -m)
 BPF_ARCH  := $(if $(filter x86_64,$(UNAME_M)),x86,$(if $(filter aarch64,$(UNAME_M)),arm64,$(UNAME_M)))
@@ -14,7 +24,7 @@ BPF_ARCH  := $(if $(filter x86_64,$(UNAME_M)),x86,$(if $(filter aarch64,$(UNAME_
 BPF_SRCS  := $(wildcard bpf/programs/*.bpf.c)
 BPF_OBJS  := $(patsubst bpf/programs/%.bpf.c,bpf/build/%.bpf.o,$(BPF_SRCS))
 
-.PHONY: all build daemon cli test lint tidy clean bpf gen-vmlinux help
+.PHONY: all build daemon cli test lint tidy clean bpf gen-vmlinux install uninstall help
 
 all: build ## Build everything (Go only)
 
@@ -49,6 +59,32 @@ bpf/build/%.bpf.o: bpf/programs/%.bpf.c
 		-c $< -o $@
 	@llvm-strip -g $@ 2>/dev/null || true
 	@echo "built $@"
+
+install: ## Install binaries, eBPF objects, config, and the systemd unit (Linux, root)
+	@test -f $(BIN)/phaged || { echo "missing $(BIN)/phaged — run 'make build' first"; exit 1; }
+	@test -f bpf/build/sensors.bpf.o || { echo "missing eBPF objects — run 'make bpf' first (needs Linux + clang)"; exit 1; }
+	install -d $(BINDIR) $(LIBDIR) $(SYSCONFDIR) $(UNITDIR)
+	install -m 0755 $(BIN)/phaged $(BIN)/phage $(BIN)/phage-jail $(BINDIR)/
+	install -m 0644 bpf/build/*.bpf.o $(LIBDIR)/
+	install -m 0644 deploy/phage.service $(UNITDIR)/phage.service
+	@if [ -f $(SYSCONFDIR)/phage.yaml ]; then \
+		echo "keeping existing $(SYSCONFDIR)/phage.yaml"; \
+	else \
+		install -m 0644 configs/phage.example.yaml $(SYSCONFDIR)/phage.yaml; \
+		echo "installed default config -> $(SYSCONFDIR)/phage.yaml (mode: learn)"; \
+	fi
+	@echo ""
+	@echo "Installed. Next:"
+	@echo "  systemctl daemon-reload"
+	@echo "  systemctl enable --now phage      # starts in LEARN mode (acts on nothing)"
+	@echo "  journalctl -u phage -f            # watch it learn"
+
+uninstall: ## Remove binaries, eBPF objects, and the unit (keeps /etc/phage and /var/lib/phage)
+	rm -f $(BINDIR)/phaged $(BINDIR)/phage $(BINDIR)/phage-jail
+	rm -rf $(LIBDIR)
+	rm -f $(UNITDIR)/phage.service
+	@echo "removed binaries, objects, and unit."
+	@echo "kept config ($(SYSCONFDIR)) and state (/var/lib/phage) — 'rm -rf' them to purge."
 
 clean: ## Remove build output
 	rm -rf $(BIN) bpf/build/*.o

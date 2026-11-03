@@ -30,7 +30,7 @@ stays cheap; the userspace agent ships as a single static binary.
 - [How it responds](#how-it-responds) — the graduated-response matrix
 - [Safety](#safety-the-ladder-and-what-enforce-will-never-touch)
 - [How it's built](#how-its-built) — architecture, inline
-- [Build and run](#build-and-run)
+- [Install](#install) · [Running it](#running-it) · [Build from source](#build-from-source)
 - [Honest limitations](#honest-limitations)
 - [Status](#status) · [Contributing & security](#contributing--security) · [License](#license)
 
@@ -200,29 +200,93 @@ baseline, adding a new detector means adding a measurement — never an `if pare
 why seccomp for jails) are recorded as ADRs under
 [docs/architecture/decisions](docs/architecture/decisions/).
 
-## Build and run
+## Install
 
-Requires Linux with kernel BTF (`/sys/kernel/btf/vmlinux`) to run; the Go agent
-builds on any OS (a stub covers non-Linux).
+Prebuilt releases aren't published yet, so the installer **builds from source** —
+the target therefore needs a Go + clang/libbpf toolchain (it is also where Phage
+runs). One command checks prerequisites (Linux, kernel BTF, Go, clang, make),
+compiles the sensors and the agent, installs them, and starts the service in
+**learn** mode (watches and learns, acts on nothing):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/AzozzALFiras/Phage/main/scripts/install.sh | sudo bash
+```
+
+…or, the same thing from a clone:
+
+```sh
+git clone https://github.com/AzozzALFiras/Phage.git && cd Phage
+sudo ./scripts/install.sh
+```
+
+It lays the pieces out like this:
+
+| Path | What |
+|---|---|
+| `/usr/local/bin/{phaged,phage,phage-jail}` | the daemon, the operator CLI, the jail tool |
+| `/usr/local/lib/phage/*.bpf.o` | the compiled eBPF sensors |
+| `/etc/phage/phage.yaml` | configuration (ships as `mode: learn`) |
+| `/etc/systemd/system/phage.service` | the systemd unit |
+| `/var/lib/phage/` | the learned baseline and the audit trail |
+
+Requires Linux with kernel BTF (`/sys/kernel/btf/vmlinux`); runs as root because
+it loads eBPF and drives the cgroup freezer.
+
+## Running it
+
+*The learn → alert → enforce ladder.* Phage is meant to run as a systemd service
+and to earn trust one rung at a time — the ladder is the safety mechanism, so
+never skip it:
+
+```sh
+systemctl status phage      # is it running?
+journalctl -u phage -f      # watch it, live
+phage status                # mode, uptime, events, alerts, contained
+phage events                # the recent verdicts, each with its reasons
+phage thaw <pid>            # manually release a contained process
+```
+
+1. **Learn** *(days, not minutes — the default)* — builds a per-host baseline and
+   does nothing else. Give it long enough to see your normal: weekly cron,
+   deploys, backups.
+2. **Alert** — when the baseline is mature, set `mode: alert` in
+   `/etc/phage/phage.yaml` and `systemctl restart phage`. Now it scores and warns
+   but still never acts; this is where you confirm it's quiet on a normal day.
+3. **Enforce** — only then set `mode: enforce`. Now it contains, proportionally
+   and reversibly (see [How it responds](#how-it-responds)), with the guardrails
+   that it will never freeze your SSH session or the control plane.
+
+Turn on the opt-in defences (honeytokens, self-heal, tamper-resistance) once you
+reach alert/enforce by adding flags with a drop-in — `systemctl edit phage`:
+
+```ini
+[Service]
+ExecStart=
+ExecStart=/usr/local/bin/phaged -config /etc/phage/phage.yaml \
+    -bpf /usr/local/lib/phage/sensors.bpf.o \
+    -honeytokens -heal -protect
+```
+
+To remove everything: `sudo make uninstall` from the clone — it keeps your config
+and baseline unless you also delete `/etc/phage` and `/var/lib/phage`.
+
+## Build from source
+
+*For development, or to run without installing.* The Go agent builds on any OS (a
+stub covers non-Linux); the eBPF sensors build and run on Linux with kernel BTF.
 
 ```sh
 make bpf            # compile the eBPF sensors (Linux; needs clang + libbpf)
-make build          # build bin/phaged (daemon) and bin/phage (CLI)
+make build          # build bin/phaged, bin/phage, bin/phage-jail
+make test           # Go unit tests (build anywhere)
 
-sudo ./bin/phaged -mode learn      # 1. learn normal behaviour first (days, not minutes)
-sudo ./bin/phaged -mode alert      # 2. then watch what it would flag — tune, don't act
-sudo ./bin/phaged -mode enforce    # 3. then let it contain
-
-./bin/phage status                 # live status
-./bin/phage events                 # recent verdicts
-./bin/phage thaw <pid>             # release a contained process
+sudo ./bin/phaged -bpf bpf/build/sensors.bpf.o -mode learn   # run straight from the tree
+sudo make install                                            # or install what you just built
 ```
 
-Useful flags: `-honeytokens` (plant decoy credential files), `-heal` (self-heal
-watched files), `-protect` (arm eBPF-LSM tamper-resistance; needs BPF LSM),
-`-release-after <s>` (de-escalation lease). Step-by-step:
-[quickstart](docs/guides/quickstart.md); building the sensors:
-[development](docs/guides/development.md).
+Author locally, build and run on a Linux box. Full guide:
+[development](docs/guides/development.md); first-run walkthrough:
+[quickstart](docs/guides/quickstart.md).
 
 ## Honest limitations
 
