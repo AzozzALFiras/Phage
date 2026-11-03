@@ -32,17 +32,20 @@ BPF_ARCH  := $(if $(filter x86_64,$(UNAME_M)),x86,$(if $(filter aarch64,$(UNAME_
 BPF_SRCS  := $(wildcard bpf/programs/*.bpf.c)
 BPF_OBJS  := $(patsubst bpf/programs/%.bpf.c,bpf/build/%.bpf.o,$(BPF_SRCS))
 
-.PHONY: all build daemon cli test lint tidy clean bpf gen-vmlinux install uninstall dist help
+.PHONY: all build daemon cli jail test lint tidy clean bpf gen-vmlinux install uninstall dist help
 
 all: build ## Build everything (Go only)
 
-build: daemon cli ## Build the daemon and the CLI
+build: daemon cli jail ## Build the daemon, the CLI, and the jail tool
 
 daemon: ## Build phaged
 	$(GO) build -ldflags "$(LDFLAGS)" -o $(BIN)/phaged ./cmd/phaged
 
 cli: ## Build the phage CLI
 	$(GO) build -ldflags "$(LDFLAGS)" -o $(BIN)/phage ./cmd/phage
+
+jail: ## Build the phage-jail tool
+	$(GO) build -ldflags "$(LDFLAGS)" -o $(BIN)/phage-jail ./cmd/phage-jail
 
 test: ## Run Go tests
 	$(GO) test ./...
