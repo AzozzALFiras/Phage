@@ -22,6 +22,18 @@ then detects and contains anything that steps outside it — **without a signatu
 for the specific vulnerability**. The heavy lifting runs in the kernel, so it
 stays cheap; the userspace agent ships as a single static binary.
 
+## Contents
+
+- [Seeing it work](#seeing-it-work-a-real-attack-stopped)
+- [The thesis](#the-thesis)
+- [How it detects](#how-it-detects) — the learned baseline, in detail
+- [How it responds](#how-it-responds) — the graduated-response matrix
+- [Safety](#safety-the-ladder-and-what-enforce-will-never-touch)
+- [How it's built](#how-its-built) — architecture, inline
+- [Build and run](#build-and-run)
+- [Honest limitations](#honest-limitations)
+- [Status](#status) · [Contributing & security](#contributing--security) · [License](#license)
+
 ## Seeing it work: a real attack, stopped
 
 On a test server, a remote machine exploited a vulnerable web app (command
@@ -36,18 +48,14 @@ CRITICAL score=0.83 action=freeze pid=6518 comm="rootshell" uid=999->euid=0 ::
 CONTAIN pid=6518 FROZEN (process tree quarantined, reversible)
 ```
 
-Legitimate privilege use inside an SSH login stayed silent. Full write-up:
-[docs/demo/external-escalation.md](docs/demo/external-escalation.md).
+Legitimate privilege use inside an SSH login stayed silent — because on this host
+root is only ever reached *through a login session*, and this wasn't one. Phage
+didn't recognize the exploit; it recognized that the result was impossible for
+this server.
 
-**Does it actually work?** Four real attacks, each run with Phage off (it
-succeeds) and on (detected, contained, or blocked), with the raw evidence and a
-one-command way to reproduce it:
-[docs/demo/proof-before-after.md](docs/demo/proof-before-after.md).
-
-**The honest numbers.** [PhageBench](docs/benchmark/phagebench.md) measures
-detection rate *and* false-positives together (7/7 on the attack corpus; and an
-honest look at where the false positives come from) — reproducible with one
-script.
+> Evidence and reproduction: four attacks run with Phage off (they succeed) and on
+> (detected / contained / blocked) in [docs/demo/proof-before-after.md](docs/demo/proof-before-after.md);
+> detection-rate *and* false-positives measured together in [PhageBench](docs/benchmark/phagebench.md).
 
 ## The thesis
 
@@ -58,12 +66,41 @@ script.
    impossible path to root, a service spawning a shell), not a fingerprint.
 4. **Respond and recover on its own** — freeze, isolate, roll back.
 
-The first three need no prior knowledge of the vulnerability. That is the point.
+The first three need no prior knowledge of the vulnerability. That is the point:
+a signature can only catch an attack someone has already seen and described;
+behavior catches the *consequence*, which an attacker cannot avoid producing.
 
 ## How it detects
 
-Phage watches a few kernel signals and scores each against the host's **learned
-baseline** — never a hardcoded rule:
+Phage never ships a list of "bad" things. Instead, every interesting kernel event
+flows through a four-stage pipeline, and the host's own history decides what is
+normal:
+
+```
+kernel event  ──►  feature  ──►  baseline  ──►  score + reasons  ──►  verdict
+ (eBPF sensor)    (measure it)  (seen before?)  (how surprising?)   (what to do)
+```
+
+1. **Measure, don't match.** A sensor turns each event into a few plain features —
+   e.g. *"this process reached euid 0"*, *"there was no login session behind it"*,
+   *"this parent has never spawned this child before"*. No feature says "bad"; it
+   just describes what happened.
+2. **Compare to the learned baseline.** In `learn` mode Phage records these
+   features per host and builds a statistical picture of normal. Scoring is based
+   on **novelty**, not rarity: a value the host has genuinely never produced is
+   surprising; a value it produces all day is not — even if there are thousands of
+   distinct ones.
+3. **Score with confidence gating.** A feature Phage has barely observed counts for
+   little, so a freshly-deployed agent off a thin baseline does not raise confident
+   alerts. Weak signals are averaged; a handful of **red-flag features** that mean
+   malice on their own (fileless execution, an `LD_PRELOAD` hijack, a root
+   escalation with no session) instead *floor* the score high — so an attacker who
+   disguises everything else as normal is still caught.
+4. **Explain the verdict.** Every score carries human-readable reasons ("raised to
+   root with no login session behind it (never seen on this host)"), so an operator
+   can always see *why* — there is no opaque model to trust.
+
+The signals Phage watches today, each scored this way:
 
 | Signal | Catches | Status |
 |---|---|---|
@@ -75,57 +112,154 @@ baseline** — never a hardcoded rule:
 | **Tamper with the agent itself** — kill/stop/ptrace it, or telemetry going silent | EDR blinding / anti-detection | ✅ |
 | **A process reads a planted decoy** (honeytoken) credential file | credential theft, intruder snooping | ✅ |
 
-<sub>✅ verified live against a real attack on a test server</sub>
+<sub>✅ verified live against a real attack on a test server. Each row links to a full write-up from the [docs index](docs/README.md#demos--live-verified-against-real-attacks).</sub>
 
-What it **cannot** see, stated plainly: XSS (runs in the victim's browser) and raw
-SQL-injection payloads (inside the DB query) are not host-observable. Phage
-detects their *effects* when they reach the OS, not the payloads themselves. See
-[docs/concepts/threats-and-behavioral-defense.md](docs/concepts/threats-and-behavioral-defense.md).
+**What it cannot see, stated plainly:** XSS runs in the victim's browser and
+raw SQL-injection payloads live inside the DB query — neither is host-observable,
+so Phage cannot see the payload. What it *can* see is the moment that exploit
+reaches the operating system: the shell it spawns, the root it gains, the
+connection it opens. It defends the server by catching effects, not payloads.
+
+## How it responds
+
+In `enforce` mode Phage doesn't just kill — killing destroys the evidence and
+tips the attacker off. A **graduated-response matrix** picks the least-invasive
+action that is *enough* for what the process actually did, and climbs only if the
+process keeps earning it:
+
+| Rung | What it does | Mechanism | Chosen for |
+|---|---|---|---|
+| **notify** | alert + append to the audit trail, nothing else | — | lower-confidence or easily-inspected signals |
+| **isolate** | sever the process's outbound network, keep it running | an eBPF `cgroup/connect` hook on its cgroup denies new egress | a reverse shell / C2 beacon — the channel dies, forensics survive |
+| **freeze** | pause the whole process tree, reversibly | moved into a cgroup-v2 freezer | a near-certain intruder (honeytoken read, no-session root) |
+
+Two properties make this safe to leave on:
+
+- **Escalation only moves up.** A process already contained at one rung isn't
+  re-actuated or re-logged for a weaker verdict; a *stronger* verdict promotes it.
+  In a live run one process dialed out (→ **isolate**) and then read a credential
+  decoy (→ **freeze**) — the same pid climbed the ladder as the evidence mounted.
+- **Containment is a lease, not a life sentence.** An isolated process that goes
+  quiet is **released automatically** (it kept running and stopped misbehaving —
+  that's real evidence it was benign or transient). A **frozen** process is
+  *held* for a human (`phage thaw`), never auto-released: a frozen process is
+  silent by construction, so "quiet" proves nothing, and freeze is reserved for
+  near-certain verdicts.
+
+Phage also **self-heals**: a malicious write to a watched file (`authorized_keys`,
+cron, `ld.so.preload`) is rolled back to the known-good version within
+milliseconds, and the attacker's version is kept in quarantine as evidence.
+
+> Full runs with raw logs: [graduated-response](docs/demo/graduated-response.md),
+> [network-quarantine](docs/demo/network-quarantine.md),
+> [self-healing](docs/demo/self-healing.md).
 
 ## Safety: the ladder, and what enforce will never touch
 
-Phage never jumps to enforcement. Every deployment climbs `learn → alert →
-enforce`, so an immature baseline can't act. And containment has hard guardrails
-(learned from a real lockout): it **never freezes an interactive login session or
-the control plane** (`sshd`, `systemd`, `phaged`, …), and only ever contains an
-actual privilege escalation. See [docs/concepts/modes.md](docs/concepts/modes.md).
+A security tool that can lock you out of your own server is worse than none. Two
+guarantees prevent that:
+
+- **Phage never jumps to enforcement.** Every deployment climbs the ladder:
+  `learn` (watch and build the baseline, act on nothing) → `alert` (score and
+  warn, still act on nothing) → `enforce` (contain). An immature baseline
+  therefore *cannot* act, and an empty one is neutral by construction.
+- **Containment has hard guardrails** — born from a real lockout during
+  development, where an early build froze `sshd` and shut the door on itself.
+  Enforce mode will **never freeze an interactive login session or the control
+  plane** (`sshd`, `systemd`, `phaged`, …), whatever the score. An attacker
+  operating *as* the control plane is deliberately out of scope for automatic
+  containment — availability wins that trade.
+
+The `phage` CLI (`status`, `events`, `thaw <pid>`) gives an operator a live view
+and a manual override at all times.
+
+## How it's built
+
+Phage is one Go binary and a set of small eBPF programs — no kernel module, no
+agent fleet, no Kubernetes:
+
+- **Kernel side (C / eBPF CO-RE).** A handful of programs attached to the events
+  that matter — `commit_creds` (privilege changes), `sched_process_exec` (exec),
+  `tcp_connect` (egress), `security_file_open` (writes + honeytokens), plus
+  kernel-enabling hooks and LSM hooks for self-defense. They do the hot-path
+  filtering in-kernel and push only the few events worth analysing up a single
+  shared ring buffer. CO-RE + BTF means one compiled object runs across kernels
+  without recompilation.
+- **Userspace side (Go, `cilium/ebpf`).** A cgo-free, statically-linked daemon
+  (`phaged`) loads the sensors and runs the pipeline: **sensor → enrich →
+  analysis → policy → response**, one package per stage. `enrich` adds process
+  lineage and session context; `analysis` is the feature/baseline/score/verdict
+  engine above; `policy` is the response matrix; `response` actuates (freeze,
+  isolate, self-heal) — all reversible.
+- **Operations.** An append-only JSON audit trail records every verdict and
+  action; the `phage` CLI talks to the daemon over a local Unix socket.
+
+Because detection is a pluggable `Scorer` and detectors are just *features* over a
+baseline, adding a new detector means adding a measurement — never an `if parent
+== "bash"` rule. The design decisions behind this (why Go + eBPF, why behavioral,
+why seccomp for jails) are recorded as ADRs under
+[docs/architecture/decisions](docs/architecture/decisions/).
 
 ## Build and run
 
 Requires Linux with kernel BTF (`/sys/kernel/btf/vmlinux`) to run; the Go agent
-builds anywhere.
+builds on any OS (a stub covers non-Linux).
 
 ```sh
 make bpf            # compile the eBPF sensors (Linux; needs clang + libbpf)
-make build          # build bin/phaged and bin/phage
-sudo ./bin/phaged -mode learn          # learn normal behaviour first (days)
-sudo ./bin/phaged -mode alert          # then watch what it flags
-sudo ./bin/phaged -mode enforce        # then let it contain
-./bin/phage status | events | thaw <pid>   # operator CLI
+make build          # build bin/phaged (daemon) and bin/phage (CLI)
+
+sudo ./bin/phaged -mode learn      # 1. learn normal behaviour first (days, not minutes)
+sudo ./bin/phaged -mode alert      # 2. then watch what it would flag — tune, don't act
+sudo ./bin/phaged -mode enforce    # 3. then let it contain
+
+./bin/phage status                 # live status
+./bin/phage events                 # recent verdicts
+./bin/phage thaw <pid>             # release a contained process
 ```
 
-See [docs/guides/quickstart.md](docs/guides/quickstart.md) and
-[development.md](docs/guides/development.md).
+Useful flags: `-honeytokens` (plant decoy credential files), `-heal` (self-heal
+watched files), `-protect` (arm eBPF-LSM tamper-resistance; needs BPF LSM),
+`-release-after <s>` (de-escalation lease). Step-by-step:
+[quickstart](docs/guides/quickstart.md); building the sensors:
+[development](docs/guides/development.md).
 
-## How it's built
+## Honest limitations
 
-Go userspace agent (`cilium/ebpf`, cgo-free static binary) + C/eBPF CO-RE kernel
-sensors. Architecture and the design decisions behind it:
-[docs/README.md](docs/README.md).
+Phage raises an attacker's cost and makes a breach survivable; it is not magic,
+and saying so is part of being a security tool worth trusting:
+
+- **Its ceiling is a kernel-level (ring-0) attacker.** Someone who can already load
+  kernel code or disable the BPF LSM can blind or remove Phage. Self-defense makes
+  that *noisy* and costly, not impossible.
+- **Detection is behavioral and probabilistic.** A patient attacker who stays
+  inside a host's learned-normal envelope can evade it, and an immature baseline
+  both misses more and false-positives more. The real numbers — including where
+  the false positives come from — are in [PhageBench](docs/benchmark/phagebench.md).
+- **It is not a replacement for patching, least privilege, or a firewall.** It is
+  the layer that assumes those will sometimes fail.
+
+The full threat model, and Phage's own security policy, are in
+[docs/concepts/threat-model.md](docs/concepts/threat-model.md) and
+[SECURITY.md](SECURITY.md).
 
 ## Status
 
-🚧 **Early but real.** Privilege-escalation, exec, **egress**, and
-**file/persistence** detection work end to end, with reversible containment, an
-audit trail, and an operator CLI — all verified live against real attacks on a
-test server ([privesc](docs/demo/external-escalation.md),
-[reverse shell](docs/demo/egress-detection.md),
-[persistence](docs/demo/file-persistence.md)). Blast-radius containment has
-begun: **auto-jail** learns a service's syscalls and generates a least-privilege
-seccomp profile, and an **eBPF-LSM exec-lock** stops an exploited service from
-spawning a shell at all — both live-verified ([demo](docs/demo/auto-jail.md)).
-Automatic application and baseline-driven LSM enforcement are next
-([roadmap](docs/roadmap.md)). Not yet production-ready.
+🚧 **Early but real — not yet production-ready.** The whole loop above works end to
+end and is verified live against real attacks on a test server (kernel 7.0, BPF
+LSM): learned-baseline detection across the seven signal classes, the graduated
+reversible response, self-healing, agent self-defense, and the beginnings of
+attack-surface reduction (auto-jail + an eBPF-LSM exec-lock that stops an exploited
+service from spawning a shell at all). Next: automatic jail application,
+baseline-driven LSM enforcement, broader kernel coverage, and a public benchmark
+comparison. See the [roadmap](docs/roadmap.md).
+
+## Contributing & security
+
+Contributions are welcome — please keep the core principles (behavioral, not
+signatures; a control plane that can't be locked out; one concern per package).
+See [CONTRIBUTING.md](CONTRIBUTING.md). To report a vulnerability in Phage itself,
+follow [SECURITY.md](SECURITY.md) (please don't open a public issue for it).
 
 ## License
 

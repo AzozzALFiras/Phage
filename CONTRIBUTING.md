@@ -18,7 +18,8 @@ Thanks for looking. Phage is early; focused contributions are very welcome.
 - `bpf/` — kernel sensors (C/eBPF CO-RE), one object, shared ring buffer.
 - `internal/` — the pipeline: `sensor → enrich → analysis → policy → response`,
   one folder per stage.
-- `docs/` — architecture, ADRs, concepts, the threat model, guides.
+- `docs/` — architecture, ADRs, concepts, the threat model, guides, live demos,
+  and the benchmark. Start at [docs/README.md](docs/README.md).
 
 ## Developing
 ```sh
@@ -33,3 +34,7 @@ and run on Linux with kernel BTF. Author locally, build/run on a Linux box.
 - Add or update tests — the decode layout contract, scorer behavior, and
   containment safety all have unit tests to protect.
 - Run `gofmt`, `go vet`, and `go test ./...` before pushing.
+
+## Reporting a security issue
+Found a vulnerability in Phage itself? Please **don't** open a public issue —
+follow [SECURITY.md](SECURITY.md) for private disclosure.
