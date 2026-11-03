@@ -8,6 +8,14 @@
 living defense that works without knowing the pathogen in advance. This one does
 the same for your server.*
 
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/AzozzALFiras/Phage?sort=semver)](https://github.com/AzozzALFiras/Phage/releases/latest)
+[![Go](https://img.shields.io/github/go-mod/go-version/AzozzALFiras/Phage)](go.mod)
+[![Go Report Card](https://goreportcard.com/badge/github.com/AzozzALFiras/Phage)](https://goreportcard.com/report/github.com/AzozzALFiras/Phage)
+![Platform: Linux eBPF](https://img.shields.io/badge/platform-Linux%20eBPF-blue)
+
+**Free and open source** · single static binary · no agent fleet, no Kubernetes
+
 </div>
 
 ---
