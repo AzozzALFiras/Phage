@@ -1,6 +1,7 @@
 # Contributing to Phage
 
 Thanks for looking. Phage is early; focused contributions are very welcome.
+By taking part you agree to our [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Principles (please keep these)
 - **Detection is behavioral, never a signature.** New detectors add a *measured
