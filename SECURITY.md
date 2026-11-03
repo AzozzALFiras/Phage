@@ -6,13 +6,14 @@ and does not promise as a piece of privileged software.
 
 ## Reporting a vulnerability
 
-**Please do not open a public issue for a security vulnerability.**
+Phage is an open-source project and its repository is **public**, so anything
+filed in the public issue tracker is visible to everyone — including attackers.
+**Please don't report a security vulnerability in a public issue.** Instead use a
+private channel (the repository stays public; only the *report* is kept private):
 
-Report it privately through one of:
-
-1. **GitHub private vulnerability reporting** (preferred) — on the repository,
-   *Security → Report a vulnerability*. This opens a private advisory visible
-   only to you and the maintainers.
+1. **GitHub's private vulnerability reporting** (preferred) — on the repository,
+   *Security → Report a vulnerability*. It opens a draft security advisory that
+   only you and the maintainers can see.
 2. **Email** — `azozzalfiras@gmail.com` with `[Phage security]` in the subject.
 
 Please include, as far as you can:
